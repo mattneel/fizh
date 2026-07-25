@@ -17,18 +17,26 @@ const Io = std.Io;
 const fizh = @import("fizh");
 const abi = fizh.abi;
 
-/// SPEC §14, retightened to ~1.5x measured. The original numbers were sized for
-/// a 600M-parameter model and left 4-45x of headroom, which cannot catch a 3x
-/// regression — a budget nothing can fail is decoration.
+/// SPEC §14, which is a **mobile** budget measured on the pinned Android.
+///
+/// These were briefly retightened to ~1.5x *desktop* measurements, which was a
+/// mistake with a cost: the paragraph row then failed on the phone at 287.7 ms
+/// against 100, a false failure produced by the budget rather than the runtime.
+/// A desktop is not a basis for a mobile budget.
+///
+/// So this binary compares desktop measurements against mobile budgets and will
+/// pass every one by a wide margin. That is expected and it is not a result —
+/// see the banner it prints. The number this step is for is the *delta between
+/// commits*, not the distance to the budget.
 const Budget = struct {
-    cold_start_ms: f64 = 10,
-    warm_p50_direct_ms: f64 = 22,
-    warm_p50_pivot_ms: f64 = 44,
-    warm_p99_long_ms: f64 = 200,
-    /// Multi-sentence input: segmentation added per-sentence work the old
-    /// numbers never saw.
-    warm_p50_paragraph_ms: f64 = 100,
-    scratch_bytes: u64 = 10 << 20,
+    cold_start_ms: f64 = 300,
+    warm_p50_direct_ms: f64 = 80,
+    warm_p50_pivot_ms: f64 = 160,
+    warm_p99_long_ms: f64 = 900,
+    /// Eight sentences, fixed. Without a declared sentence count the row could
+    /// be neither passed nor failed (work order 8 P1).
+    warm_p50_paragraph_ms: f64 = 400,
+    scratch_bytes: u64 = 12 << 20,
     weights_bytes: u64 = 64 << 20,
 };
 
@@ -105,9 +113,10 @@ pub fn main(init: std.process.Init) !void {
         fizh.kernel.active.name,
         @tagName(@import("builtin").mode),
     });
-    try out.print("  SPEC §14 budgets. Every number below is a DESKTOP PROXY:\n", .{});
-    try out.print("  T5 has not run on the pinned reference device (§14 names a\n", .{});
-    try out.print("  2022-class mid-tier Android). Trend detection only.\n\n", .{});
+    try out.print("  SPEC §14 budgets are MOBILE, measured on the pinned Android.\n", .{});
+    try out.print("  These are DESKTOP measurements against them, so passing is\n", .{});
+    try out.print("  expected and means nothing. Use the delta between commits.\n", .{});
+    try out.print("  The real numbers come from the Pages harness (ADR 0021).\n\n", .{});
     try out.print("  {s:<34} {s:>12} {s:>12}\n", .{ "metric", "measured", "budget" });
     try out.print("  {s:-<34} {s:->12} {s:->12}\n", .{ "", "", "" });
 

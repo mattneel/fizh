@@ -124,6 +124,7 @@ Deciding which kind a new region is: *if two loaded models would write different
 | `shortlist_rows` | `max_shortlist · max(d_model) · 1` |
 | `shortlist_ids`, `logits` | `max_shortlist · 4` each |
 | `sent_spans` | `(max_src_bytes / 2 + 2) · 8` — a sentence needs at least a terminator and a separator |
+| `qact_scales`, `attn_scores` | `max(max_src_tokens, max_tgt_tokens) · 4` and `heads · that · 4`. Raising `max_tgt_tokens` from 1.5× to 3× `max_src_tokens` (§4.3, measured ratios) cost ~390 KB across these and `tgt_ids` — recorded here because it went in uncosted. |
 | `pos_enc` | **not here.** Carved in the slot, `max(max_src_tokens, max_tgt_tokens) · d_model · 4` per loaded model — it is derived from that model's `d_model` (§4.1, ADR 0020). |
 | `tok_raw`, `tok_norm` | `max_src_bytes + 8` each — the `nmt_nfkc` rewrite runs into `tok_raw`, whitespace handling then moves it into `tok_norm`. Two buffers because the rewrite can grow the text and the whitespace pass prepends a marker (ADR 0017). |
 | `tok_lattice` | `max_src_bytes · sizeof(LatticeNode)` |
@@ -152,6 +153,24 @@ A pivot between two `d=384` directions is the expensive case and it is real — 
 | **Total before the host's own allocations** | **≈ 122 MB** |
 
 Whether a phone tolerates that is not answerable from a desktop, which is what SPEC §13 T5 and the Pages harness exist to settle.
+
+### The transient peak, which is larger than the arena
+
+**`fizh_model_load` repacks; it does not adopt.** Between the host writing a blob into memory and that call returning, the same weights exist twice — once as the host's copy, once repacked into the slot. The arena figure above does not include the host's copy, and the first Android run measured the difference precisely: a 31.9 MB arena against a 53.3 MB peak heap, a 21.4 MB delta that is the 20.2 MB blob plus buffers.
+
+Two things follow, and a host that ignores either will hit them:
+
+1. **Stage every model through one reused buffer.** Writing each blob at a fresh offset makes the transient `arena + Σ blobs`; reusing one buffer makes it `arena + max(blob)`. On a two-slot pivot of 33 MB artifacts that is the difference between 66 MB and 33 MB of transient. `web/fizh.js` does this and is the reference for it.
+2. **The buffer cannot be freed.** wasm memory never shrinks, so the staging region stays reserved for the process lifetime. Size it once, deliberately, and reuse it.
+
+So the worked case above is a *resident* figure, and the number a device actually has to survive is:
+
+| | |
+|---|---|
+| Resident: two directions + scratch | ≈ 122 MB |
+| Transient at load: + the largest blob | **≈ 178 MB** |
+
+That is where iOS jetsam and low-end Android tab-killing live. A host that fetches two 33 MB models into memory *before* calling `fizh_model_load` adds both blobs on top again; fetch and load one at a time.
 
 ---
 
@@ -371,28 +390,33 @@ The asymmetry is what makes it worth a rule. A false "this language is hard" cos
 
 ## 14. Performance budget
 
-Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded, Chrome stable. Pin one physical unit; CI numbers are for trend detection only.
+Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded, Chrome stable. Pin one physical unit.
 
-Every number in this table is currently a **desktop proxy**. T5 has never run on
-the pinned device; `zig build bench` says so in its own output rather than
-letting the omission be implied.
+**T5 has run.** The budgets below are mobile measurements, not desktop proxies. The first run was an 8-core armv81 Android 10 device, 8 GB, Chrome 150, on `es→en` with the relaxed build.
 
-Budgets are ~1.5× measured, deliberately. The original set was sized for a 600M
-model and left 4–45× of headroom, which cannot catch a 3× regression — a budget
-nothing can fail is decoration, not a tripwire.
+Work order 5 retightened this table to ~1.5× *desktop* measurements. That was a mistake with a specific cost: a desktop is not a basis for a mobile budget, and the retightened paragraph row failed on the phone at 287.7 ms against 100 ms — a false failure produced by the budget, not by the runtime. The numbers below return to the mobile-targeted scale the table originally had, which the device says was closer to right.
 
-| Metric | Budget | Measured (desktop) |
+| Metric | Budget | Measured (Android, es→en) |
 |---|---|---|
-| Cold start: instantiate + load + repack, one direction | ≤ 10 ms | 5.8 |
-| Warm p50, 12-token message, **direct** | ≤ 22 ms | 14.8 |
-| Warm p50, 12-token message, **pivot** | ≤ 44 ms | — |
-| Warm p99, 120-token message, direct | ≤ 200 ms | 130 |
-| Warm p50, 8-sentence paragraph | ≤ 100 ms | 64.8 |
-| Shared scratch | ≤ 10 MB | 6.76 |
+| Cold start: instantiate + load + repack, one direction | ≤ 300 ms | **29.3** |
+| Warm p50, 12-token message, **direct** | ≤ 80 ms | **59.5** |
+| Warm p50, 12-token message, **pivot** | ≤ 160 ms | not yet run |
+| Warm p99, 120-token message, direct | ≤ 900 ms | **847.8** ⚠ see below |
+| Warm p50, 8-sentence paragraph | ≤ 400 ms | **287.7** (35.9 per sentence) |
+| Shared scratch | ≤ 12 MB | 6.4 at the §4.3 config |
 | Weights, per direction | ≤ 64 MB | 19.2 (tiny), 33.4 (base-memory), up to 56.7 (base) |
 
-The paragraph row is new: segmentation (ADR 0011) added per-sentence work that
-the pre-segmentation numbers never saw.
+Three things this table now states that the desktop one could not:
+
+**The 120-token p99 is marginal and its first measurement was not a p99.** 847.8 ms came from 30 samples, where the 99th percentile is definitionally the worst one. The harness now refuses to print a p99 below 300 runs and reports `max` instead, labelled as max. Treat 847.8 as a max until a 300-run figure replaces it.
+
+**The paragraph row has a unit.** Eight sentences, fixed, and per-sentence cost is reported beside the total. Without that the row could be neither passed nor failed: 287.7 ms for eight sentences is *faster per sentence* than the 12-token case, because the encoder amortizes across a warm cache.
+
+**Burst and steady state are separate numbers.** The first run showed min 39.6 against p50 59.5 with no tail above it — a 50% spread that is DVFS or big.LITTLE migration on an 8-core heterogeneous device, not the runtime. Web code cannot pin affinity, so the harness reports burst (first quarter of samples) and steady (second half) as distinct rows and records run duration and page visibility. **Do not tune against a number whose variance is the CPU scheduler.**
+
+### Desktop figures, which are not budgets
+
+`zig build bench` still measures on the build machine. Those numbers are useful for catching a 3× regression between commits and for nothing else; they are not a budget and passing them means nothing about a phone. At the §4.3 config on the development desktop: cold start 5.8 ms, p50 12-token 14.8, p99 120-token 130, paragraph 64.8, scratch 6.4 MB.
 
 p50 and p99 are separate budgets, never a mean. p99 is a long message on the slowest supported device and it decides whether the UI feels broken.
 

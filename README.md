@@ -35,17 +35,21 @@ Real Mozilla Bergamot models, real translation, through the shipped wasm.
 | en→de | `Good morning, how are you?` → `Guten Morgen, wie geht es dir?` |
 | es→de, pivoted | `Buenos días, ¿cómo estás?` → `Guten Morgen, wie geht es dir?` |
 | chrF++, chat corpus | **46.73** (bergamot-translator: 45.86) |
-| warm p50, 12 tokens | **15.2 ms** (budget 22) |
-| warm p99, 120 tokens | **128 ms** (budget 200) |
-| warm p50, 8-sentence paragraph | **65 ms** (budget 100) |
-| cold start | **6.4 ms** (budget 10) |
+| warm p50, 12 tokens | **59.5 ms** on Android (budget 80) |
+| warm p50, 8-sentence paragraph | **287.7 ms**, 35.9 per sentence (budget 400) |
+| cold start | **29.3 ms** on Android (budget 300) |
 | slot, per direction | **19.23 MB** (budget 20) |
 | shared scratch | **7.16 MB** (budget 10) |
 | `fizh.baseline.wasm` | **32 KB gzipped**, 0 imports, 8 exports (budget 200 KB) |
 
-Budgets are SPEC §14 as retightened to ~1.5x measured — the originals were
-sized for a 600M-parameter model and left 4-45x of headroom, which cannot catch
-a 3x regression. Every number is a desktop proxy; see the last section.
+**§14's budgets are mobile and T5 has run**: an 8-core armv81 Android 10
+device, Chrome 150, `es→en`. Timing rows above are that device; size rows are
+build-time facts. The desktop figures `zig build bench` prints are for
+catching a regression between commits and are not a budget.
+
+One caveat travels with the first run: its p99 came from 30 samples, where the
+99th percentile is the worst sample by definition. The harness now refuses to
+print a p99 below 300 runs.
 
 ### Against the reference implementation
 
@@ -178,9 +182,14 @@ can be wrong.*
   `<unk>`. That is Bergamot's behaviour too, not a fizh bug.
 - **No FLORES corpus is vendored** (CC-BY-SA); `tools/eval/corpora/README.md`
   has the three lines that build one. Only the chat register ships.
-- **T5 has never run on the reference device.** SPEC §14 pins a 2022-class
-  mid-tier Android; every number above is a desktop, which proves less than it
-  looks like.
+- **I1 is not yet tested.** The project's premise is that bergamot's engine is
+  intgemm-based and x86-tuned while phones are ARM. Comparing fizh's relaxed
+  build to its own baseline measures relaxed SIMD, not that. The benchmark page
+  now runs bergamot itself on the device; until that number exists, I1 is an
+  assumption.
+- **The transient load peak is ~178 MB for a two-slot pivot** of the largest
+  artifacts, because `fizh_model_load` repacks rather than adopts. Stage
+  through one reused buffer and load one model at a time (SPEC §4.3).
 - **fizh's shortlist costs it ~0.27 chrF++ on en→de** against its own
   full-vocabulary projection. Bergamot pays the same tax at the same batch
   size; the per-sentence scope is correct for a library that translates one
