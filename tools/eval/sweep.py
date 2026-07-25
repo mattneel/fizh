@@ -122,6 +122,18 @@ def one_pair(pair, args, base, records, flores: Path) -> dict:
         return {**out, "stage": "fetch", "ok": False,
                 "error": f"missing model or vocab in {raw}"}
     out["vocab_files"] = len(vocabs)
+    # A bundle with distinct srcvocab/trgvocab files has one vocabulary per
+    # side. fizh has one table end to end -- the tokenizer, the shortlist's
+    # source index and the tied output projection all read it -- so picking
+    # either file silently mistranslates. en-zh-* pairs even ship a shared
+    # `Wemb` alongside two different vocabularies, which the untied-embedding
+    # check in bergamot.py cannot see. ADR 0019.
+    src_v = [v for v in vocabs if v.name.startswith("srcvocab")]
+    tgt_v = [v for v in vocabs if v.name.startswith("trgvocab")]
+    if src_v and tgt_v and src_v[0].read_bytes() != tgt_v[0].read_bytes():
+        return {**out, "stage": "convert", "ok": False,
+                "error": "separate source and target vocabularies; fizh "
+                         "requires one shared vocabulary"}
 
     fzm = Path(args.work) / (f"{src}{tgt}".replace("-", "") + ".fzm")
     cmd = [sys.executable, "tools/bergamot.py", str(fzm), "--model", str(model),

@@ -134,6 +134,15 @@ can be wrong.*
 | 0008 | The decoder is an SSRU. |
 | 0009 | Marian's on-disk int8: not tiled, already transposed. |
 | 0010 | Special ids come from the vocabulary; shortlist ids are `u16`. |
+| 0011 | fizh splits sentences. Bergamot's models stop at the end of one. |
+| 0012 | Static activation alphas, measured and rejected. A negative result. |
+| 0013 | Rejoin fidelity: what segmentation costs at the seams. |
+| 0014 | No WebGPU. |
+| 0015 | The decoder starts from a zero vector, not `emb(</s>)`. Worth 1.5 chrF++ on en→de, and the method — teacher forcing — matters more than the fix. |
+| 0016 | Benchmark a model that terminates. The §14 numbers were timing an empty decode loop. |
+| 0017 | Ship the model's own `nmt_nfkc` table; do not reimplement NFKC. |
+| 0018 | The shortlist is not free — and the reference was not using one. Two harness bugs, each producing a confident wrong conclusion. |
+| 0019 | Coverage is not two pairs. What sweeping all 105 found. |
 
 ## Known gaps
 
@@ -144,12 +153,10 @@ can be wrong.*
 - **T5 has never run on the reference device.** SPEC §14 pins a 2022-class
   mid-tier Android; every number above is a desktop, which proves less than it
   looks like.
-- **The shortlist costs en→de about 0.27 chrF++** against full-vocabulary
-  projection, which is most of the remaining gap. Not the size cap and not the
-  frequent-word set — the per-source-token candidate lists (ADR 0018).
-- **The reference engine was not running with a shortlist enabled**, so the
-  deltas above compare fizh-with-shortlist against bergamot-at-full-vocab.
-  Conservative rather than wrong, but not the comparison claimed. ADR 0018.
+- **fizh's shortlist costs it ~0.27 chrF++ on en→de** against its own
+  full-vocabulary projection. Bergamot pays the same tax at the same batch
+  size; the per-sentence scope is correct for a library that translates one
+  message at a time (ADR 0018).
 - **The shipped `.fzm` is 19.23 MB against a 20 MB budget.** The `nmt_nfkc`
   table is 237 KB of that and is the first thing to drop if a future artifact
   needs the headroom (ADR 0017).

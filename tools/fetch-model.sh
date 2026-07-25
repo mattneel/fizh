@@ -64,7 +64,17 @@ for r in recs:
 PY
 
 MODEL=$(ls "$RAW"/model.*.intgemm.alphas.bin)
-VOCAB=$(ls "$RAW"/vocab.*.spm)
+
+# A bundle with distinct srcvocab/trgvocab files has one vocabulary per side.
+# fizh has one table end to end, so either choice silently mistranslates.
+if [ -f "$RAW"/srcvocab.*.spm ] && [ -f "$RAW"/trgvocab.*.spm ]; then
+  if ! cmp -s "$RAW"/srcvocab.*.spm "$RAW"/trgvocab.*.spm; then
+    echo "  ${SRC}->${TGT}: separate source and target vocabularies; fizh requires one shared vocabulary" >&2
+    exit 1
+  fi
+fi
+
+VOCAB=$(ls "$RAW"/vocab.*.spm 2>/dev/null || ls "$RAW"/srcvocab.*.spm)
 LEX=$(ls "$RAW"/lex.*.s2t.bin 2>/dev/null || true)
 
 PYTHONPATH=tools python3 tools/bergamot.py "${OUT}/${PAIR}.fzm" \

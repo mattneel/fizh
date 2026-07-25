@@ -161,6 +161,15 @@ def convert(args) -> int:
     if len(vocab) != vocab_size:
         raise SystemExit(f"vocab has {len(vocab)} pieces, Wemb has {vocab_size} rows")
 
+    # SPEC §9 packs a language into two ASCII letters, so the registry's
+    # script-qualified codes -- zh-Hans, zh-Hant -- have nowhere to go. Refuse by
+    # that reason rather than asserting somewhere downstream. ADR 0019.
+    for who, code in (("--src", args.src), ("--tgt", args.tgt)):
+        if len(code) != 2 or not code.isascii() or not code.isalpha():
+            raise SystemExit(
+                f"{who} {code!r}: fizh encodes a language as two ASCII letters "
+                f"(SPEC §9); script-qualified codes cannot be represented")
+
     print(f"  {args.src}->{args.tgt}  d={d_model} ffn={ffn_dim} enc={n_enc} "
           f"dec={n_dec} heads={heads} vocab={vocab_size} cell={dec_cell} "
           f"act={yaml_get('transformer-ffn-activation')} "
