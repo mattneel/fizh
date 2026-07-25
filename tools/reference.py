@@ -404,9 +404,12 @@ def decode(m: Model, enc, src_ids, max_tgt: int, shortlist_cap: int):
     limit = min(max_tgt, int(np.ceil(m.max_length_factor * len(src_ids))) + 2)
     cell = [np.zeros((1, m.d_model)) for _ in range(m.n_dec)]
 
-    prev, produced = m.bos_id, []
+    # Marian shifts the decoder's target embeddings right by one with a zero
+    # fill, so step 0 is the positional encoding alone. ADR 0015.
+    prev, produced = None, []
     for t in range(limit):
-        x = embed(m, [prev], pos_offset=t)
+        x = embed(m, [prev], pos_offset=t) if prev is not None else f32(
+            positional(m.d_model, 1))
         for l in range(m.n_dec):
             # SSRU (ADR 0008): c = sigmoid(f)*c + (1-sigmoid(f))*(W x); h = relu(c)
             p = f"dec.{l}.rnn"

@@ -38,13 +38,15 @@ pub fn run(ctx: *pass.Ctx) u32 {
     assert(limit > 0);
 
     const d = ctx.hp.d_model;
-    var prev: u32 = ctx.hp.bos_id;
+    // Marian shifts the decoder's target embeddings right by one and zero-fills
+    // (`shift(embeddings, {1, 0, 0})`), so step 0 has no previous token at all.
+    var prev: ?u32 = null;
     var t: u32 = 0;
 
     // SPEC §12.3: bounded, and bounded by a `for` rather than a promise.
     for (0..limit) |_| {
         const x = ctx.slot4(slot_x)[0..d];
-        embedStep(ctx, prev, t, x);
+        if (prev) |id| embedStep(ctx, id, t, x) else embedStart(ctx, x);
         for (0..ctx.hp.n_dec_layers) |l| decLayer(ctx, @intCast(l), t);
 
         if (ctx.hp.prenorm == 1) {
@@ -79,6 +81,19 @@ fn stepLimit(ctx: *const pass.Ctx) u32 {
     const limit = @min(ctx.max_tgt_tokens, by_factor);
     assert(limit >= 1);
     return limit;
+}
+
+/// The decoder input for step 0. Marian's decoder embeds the target sequence
+/// shifted right by one with a *zero* fill, so the first step sees the
+/// positional encoding alone and no token embedding whatsoever. Seeding with
+/// `emb(</s>)` instead — which is what `bos_id` would suggest — gets about half
+/// of all first tokens wrong while every later step is unaffected. ADR 0015.
+fn embedStart(ctx: *pass.Ctx, out: []f32) void {
+    const d = ctx.hp.d_model;
+    assert(out.len == d);
+    assert(ctx.pos_enc.len >= d);
+
+    @memcpy(out, ctx.pos_enc[0..d]);
 }
 
 fn embedStep(ctx: *pass.Ctx, id: u32, t: u32, out: []f32) void {
