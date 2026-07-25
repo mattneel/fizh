@@ -103,7 +103,7 @@ test "rows are padded and the pad is zeroed" {
     };
     @memset(&Slot.buf, 0xaa);
 
-    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .n = 3, .k = 20 };
+    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .alpha = 0, .n = 3, .k = 20 };
     try testing.expectEqual(@as(u32, 64), m.stride());
 
     var data: [60]u8 = undefined;
@@ -125,7 +125,7 @@ test "a -128 weight is rejected wherever it hides" {
     const Slot = struct {
         var buf: [4096]u8 align(layout.alignment) = undefined;
     };
-    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .n = 2, .k = 64 };
+    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .alpha = 0, .n = 2, .k = 64 };
     const scales = [_]f32{ 1.0, 1.0 };
 
     var data: [128]u8 = @splat(1);
@@ -146,7 +146,7 @@ test "non-finite and non-positive scales are rejected" {
     const Slot = struct {
         var buf: [4096]u8 align(layout.alignment) = undefined;
     };
-    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .n = 2, .k = 64 };
+    const m: layout.QuantMat = .{ .data = 0, .scales = 1024, .alpha = 0, .n = 2, .k = 64 };
     const data: [128]u8 = @splat(1);
 
     for ([_]f32{ std.math.nan(f32), std.math.inf(f32), -1.0, 0.0 }) |bad| {

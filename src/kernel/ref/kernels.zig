@@ -58,6 +58,37 @@ pub fn quantizeRows(
     }
 }
 
+/// SPEC §7's alternative: quantize against a *fixed* scale rather than one
+/// derived from the row. Bergamot ships these per matmul (ADR 0012), so this is
+/// the path that reproduces its arithmetic. Values outside the scale's range
+/// clamp, which is the whole risk of a static scale and why the dynamic path
+/// stays.
+pub fn quantizeRowsWith(
+    dst: []i8,
+    dst_stride: u32,
+    src: []const f32,
+    src_stride: u32,
+    rows: u32,
+    cols: u32,
+    scale: f32,
+) void {
+    assert(rows > 0 and cols > 0);
+    assert(dst_stride >= cols and src_stride >= cols);
+    assert(std.math.isFinite(scale) and scale > 0);
+
+    const inv = 1.0 / scale;
+    for (0..rows) |r| {
+        const in = src[r * src_stride ..][0..cols];
+        const out = dst[r * dst_stride ..][0..cols];
+        for (in, out) |x, *q| {
+            assert(std.math.isFinite(x));
+            const v = roundTiesEven(x * inv);
+            q.* = @intFromFloat(std.math.clamp(v, -127.0, 127.0));
+            assert(q.* != -128);
+        }
+    }
+}
+
 /// Round half to even without `@round`, which is a libcall on wasm (ADR 0003).
 fn roundTiesEven(x: f32) f32 {
     const magic: f32 = 8388608.0; // 2^23

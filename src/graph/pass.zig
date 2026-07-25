@@ -73,6 +73,16 @@ pub const Ctx = struct {
 
     /// Non-breaking prefixes for this direction's source language, shipped in
     /// the artifact. Empty until the converter emits them.
+    /// The static activation multiplier for a matmul, or null when this
+    /// artifact wants SPEC §7's dynamic scales (ADR 0012).
+    pub fn staticScale(self: *const Ctx, m: layout.QuantMat) ?f32 {
+        if (self.hp.act_quant != 1) return null;
+        assert(m.alpha != 0);
+        const alpha = format.f32View(self.slot, m.alpha, 1)[0];
+        assert(alpha > 0);
+        return 1.0 / alpha;
+    }
+
     pub fn prefixes(self: *const Ctx) ssplit.Prefixes {
         return .{ .blob = self.model.prefixes(self.slot) };
     }
@@ -149,19 +159,18 @@ pub fn run(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
     assert(count <= spans.len);
 
     var written: u32 = 0;
-    for (spans[0..count]) |span| {
+    var prev_end: u32 = 0;
+    for (spans[0..count], 0..) |span, idx| {
         const sentence = in[span.start..span.end];
         if (sentence.len == 0) continue;
 
-        // Sentences are joined by a single space. The models are trained on
-        // detokenized text, so preserving the source's exact inter-sentence
-        // whitespace would carry nothing across the language boundary.
-        if (written != 0) {
+        if (idx != 0) {
             if (written + 1 > out.len) return error.OutTooSmall;
             out[written] = ' ';
             written += 1;
         }
         written += try sentence_(ctx, sentence, out[written..]);
+        prev_end = span.end;
     }
     return written;
 }

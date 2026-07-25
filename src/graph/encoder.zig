@@ -164,14 +164,14 @@ fn selfAttention(ctx: *pass.Ctx, a: layout.Attn) void {
         break :blk normed;
     } else x;
 
-    quantize(ctx, src, s, d);
+    quantize(ctx, src, s, d, a.q);
     project(ctx, a.q, a.q_bias, ctx.work(0), s, d, d);
     project(ctx, a.k, a.k_bias, ctx.work(1), s, d, d);
     project(ctx, a.v, a.v_bias, ctx.work(2), s, d, d);
 
     attention.prefill(ctx, ctx.work(0), ctx.work(1), ctx.work(2), ctx.work(3), s);
 
-    quantize(ctx, ctx.work(3)[0 .. s * d], s, d);
+    quantize(ctx, ctx.work(3)[0 .. s * d], s, d, a.o);
     const out = ctx.act_b[0 .. s * d];
     project(ctx, a.o, a.o_bias, out, s, d, d);
 
@@ -190,12 +190,12 @@ fn feedForward(ctx: *pass.Ctx, f: layout.Ffn) void {
         break :blk normed;
     } else x;
 
-    quantize(ctx, src, s, d);
+    quantize(ctx, src, s, d, f.w1);
     const hidden = ctx.act_a[0 .. s * ffn];
     project(ctx, f.w1, f.bias1, hidden, s, d, ffn);
     kernel.activation(hidden, act(ctx));
 
-    quantize(ctx, hidden, s, ffn);
+    quantize(ctx, hidden, s, ffn, f.w2);
     const out = ctx.act_b[0 .. s * d];
     project(ctx, f.w2, f.bias2, out, s, ffn, d);
 
@@ -216,10 +216,18 @@ fn merge(ctx: *pass.Ctx, x: []f32, branch: []f32, ln_gain: u32, ln_bias: u32, s:
     kernel.layerNorm(x, branch, gain(ctx, ln_gain), gain(ctx, ln_bias), s, d, d, ctx.hp.norm_eps);
 }
 
-/// SPEC §7: dynamic per-row absmax, recomputed at every matmul input.
-fn quantize(ctx: *pass.Ctx, src: []const f32, rows: u32, cols: u32) void {
+/// SPEC §7: dynamic per-row absmax by default; the artifact's static alpha when
+/// it asked for one (ADR 0012). `m` names the matmul this input feeds, because
+/// Bergamot's alphas are per matmul.
+fn quantize(ctx: *pass.Ctx, src: []const f32, rows: u32, cols: u32, m: layout.QuantMat) void {
     assert(src.len >= @as(usize, rows) * cols);
     assert(ctx.qact.len >= @as(usize, rows) * cols);
+
+    if (ctx.staticScale(m)) |scale| {
+        kernel.quantizeRowsWith(ctx.qact, cols, src, cols, rows, cols, scale);
+        for (ctx.qact_scales[0..rows]) |*s| s.* = scale;
+        return;
+    }
     kernel.quantizeRows(ctx.qact, cols, ctx.qact_scales, src, cols, rows, cols);
 }
 
@@ -246,12 +254,14 @@ fn project(ctx: *pass.Ctx, m: layout.QuantMat, bias_off: u32, out: []f32, rows: 
 fn crossKv(ctx: *pass.Ctx) void {
     const s = ctx.src_len;
     const d = ctx.hp.d_model;
-    quantize(ctx, ctx.enc_states[0 .. s * d], s, d);
-
     for (0..ctx.hp.n_dec_layers) |raw| {
         const l: u32 = @intCast(raw);
         const xa = ctx.sl.decLayer(l).cross_attn;
+        // Re-quantized per layer: with static alphas the scale differs by
+        // matmul, so one shared quantization would be wrong for all but one.
+        quantize(ctx, ctx.enc_states[0 .. s * d], s, d, xa.k);
         project(ctx, xa.k, xa.k_bias, ctx.xattn(l, .k), s, d, d);
+        quantize(ctx, ctx.enc_states[0 .. s * d], s, d, xa.v);
         project(ctx, xa.v, xa.v_bias, ctx.xattn(l, .v), s, d, d);
     }
 }

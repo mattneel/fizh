@@ -96,6 +96,12 @@ fn foldDecimal(seed: u64, value: u32) u64 {
 // -- the fixed names --------------------------------------------------------
 
 pub const emb = of("emb");
+pub const emb_alpha = of("emb.alpha");
+
+/// The static activation multiplier that goes with a weight (ADR 0012).
+pub fn alphaOf(comptime _: u64) u64 {
+    return emb_alpha;
+}
 pub const emb_bias = of("emb.bias");
 pub const enc_ln_gain = of("enc.ln.gain");
 pub const enc_ln_bias = of("enc.ln.bias");

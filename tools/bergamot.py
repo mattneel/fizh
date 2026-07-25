@@ -32,6 +32,21 @@ from convert import Artifact, HParams, Vocab, emit_vocab, read_spm
 ATTN = (("q", "Wq", "bq"), ("k", "Wk", "bk"), ("v", "Wv", "bv"), ("o", "Wo", "bo"))
 
 
+def alpha_from(art: Artifact, name: str, tensors, marian_name: str) -> None:
+    """Bergamot's static activation multiplier for the matmul using this weight.
+
+    `fetchAlphaFromModelNodeOp` in marian-dev looks these up as
+    `<weight>_QuantMultA`, so the key is the weight, not the layer. ADR 0012.
+    """
+    t = tensors.get(f"{marian_name}_QuantMultA")
+    if t is None:
+        raise SystemExit(f"{marian_name}: no _QuantMultA; the model is not an .alphas. build")
+    v = float(np.asarray(t.dequantized()).ravel()[0])
+    if not (v > 0):
+        raise SystemExit(f"{marian_name}_QuantMultA = {v}, which cannot be a scale")
+    art.add_f32(f"{name}.alpha", np.array([v], dtype=np.float32))
+
+
 def quant_from(art: Artifact, name: str, t: marian.Tensor, gemm: bool) -> None:
     """Passes Marian's int8 through unchanged, broadcasting its single scale.
 
@@ -145,6 +160,7 @@ def convert(args) -> int:
         shortlist_width=args.shortlist_width,
         eos_id=eos, bos_id=eos, unk_id=unk, pad_id=args.pad,
         ffn_act=act, prenorm=prenorm, tied_embeddings=1,
+        act_quant=1 if args.activation_quant == "static" else 0,
         emb_scale=float(np.sqrt(d_model)), norm_eps=1e-9,
         max_length_factor=args.length_factor,
     )
@@ -152,6 +168,8 @@ def convert(args) -> int:
 
     # Wemb is [vocab][dim] already — the one matrix that needs no transpose.
     quant_from(art, "emb", emb, gemm=False)
+    if args.activation_quant == "static":
+        alpha_from(art, "emb", tensors, "Wemb")
     art.add_f32("emb.bias", np.asarray(need("decoder_ff_logit_out_b").data).ravel())
 
     # Post-norm models carry no final norm; an identity keeps the loader uniform.
@@ -163,26 +181,33 @@ def convert(args) -> int:
         m = f"encoder_l{i + 1}"
         for tag, w, b in ATTN:
             quant_from(art, f"enc.{i}.att.{tag}.w", need(f"{m}_self_{w}"), gemm=True)
+            if args.activation_quant == "static":
+                alpha_from(art, f"enc.{i}.att.{tag}.w", tensors, f"{m}_self_{w}")
             f32_from(art, f"enc.{i}.att.{tag}.bias", need(f"{m}_self_{b}"))
         f32_from(art, f"enc.{i}.att.ln.gain", need(f"{m}_self_Wo_ln_scale"))
         f32_from(art, f"enc.{i}.att.ln.bias", need(f"{m}_self_Wo_ln_bias"))
-        emit_ffn(art, f"enc.{i}.ffn", need, f"{m}_ffn")
+        emit_ffn(art, f"enc.{i}.ffn", need, f"{m}_ffn", tensors, args.activation_quant == "static")
 
     for i in range(n_dec):
         m = f"decoder_l{i + 1}"
         # SSRU (ADR 0008): rnn_W has no bias; only the forget gate does.
         quant_from(art, f"dec.{i}.rnn.w", need(f"{m}_rnn_W"), gemm=True)
         quant_from(art, f"dec.{i}.rnn.wf", need(f"{m}_rnn_Wf"), gemm=True)
+        if args.activation_quant == "static":
+            alpha_from(art, f"dec.{i}.rnn.w", tensors, f"{m}_rnn_W")
+            alpha_from(art, f"dec.{i}.rnn.wf", tensors, f"{m}_rnn_Wf")
         f32_from(art, f"dec.{i}.rnn.bf", need(f"{m}_rnn_bf"))
         f32_from(art, f"dec.{i}.rnn.ln.gain", need(f"{m}_rnn_ffn_ln_scale"))
         f32_from(art, f"dec.{i}.rnn.ln.bias", need(f"{m}_rnn_ffn_ln_bias"))
 
         for tag, w, b in ATTN:
             quant_from(art, f"dec.{i}.xa.{tag}.w", need(f"{m}_context_{w}"), gemm=True)
+            if args.activation_quant == "static":
+                alpha_from(art, f"dec.{i}.xa.{tag}.w", tensors, f"{m}_context_{w}")
             f32_from(art, f"dec.{i}.xa.{tag}.bias", need(f"{m}_context_{b}"))
         f32_from(art, f"dec.{i}.xa.ln.gain", need(f"{m}_context_Wo_ln_scale"))
         f32_from(art, f"dec.{i}.xa.ln.bias", need(f"{m}_context_Wo_ln_bias"))
-        emit_ffn(art, f"dec.{i}.ffn", need, f"{m}_ffn")
+        emit_ffn(art, f"dec.{i}.ffn", need, f"{m}_ffn", tensors, args.activation_quant == "static")
 
     emit_vocab(art, vocab)
     # ADR 0011: the splitter is language-agnostic; the list is not.
@@ -213,10 +238,14 @@ def convert(args) -> int:
     return 0
 
 
-def emit_ffn(art, prefix, need, m):
+def emit_ffn(art, prefix, need, m, tensors=None, static=False):
     quant_from(art, f"{prefix}.w1", need(f"{m}_W1"), gemm=True)
+    if static:
+        alpha_from(art, f"{prefix}.w1", tensors, f"{m}_W1")
     f32_from(art, f"{prefix}.bias1", need(f"{m}_b1"))
     quant_from(art, f"{prefix}.w2", need(f"{m}_W2"), gemm=True)
+    if static:
+        alpha_from(art, f"{prefix}.w2", tensors, f"{m}_W2")
     f32_from(art, f"{prefix}.bias2", need(f"{m}_b2"))
     f32_from(art, f"{prefix}.ln.gain", need(f"{m}_ffn_ln_scale"))
     f32_from(art, f"{prefix}.ln.bias", need(f"{m}_ffn_ln_bias"))
@@ -232,6 +261,9 @@ def main(argv=None) -> int:
     p.add_argument("--tgt", default="en")
     p.add_argument("--max-pos", type=int, default=512)
     p.add_argument("--length-factor", type=float, default=3.0)
+    p.add_argument("--activation-quant", choices=("dynamic", "static"), default="dynamic",
+                   help="dynamic = SPEC §7 per-row absmax; static = the "
+                        "*_QuantMultA alphas the artifact ships (ADR 0012)")
     p.add_argument("--shortlist-width", type=int, default=2048)
     p.add_argument("--shortlist-best", type=int, default=50,
                    help="candidates kept per source piece; lower to fit SPEC §14")

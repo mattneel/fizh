@@ -125,11 +125,11 @@ fn ssruStep(ctx: *pass.Ctx, a: layout.Ssru, l: u32) void {
 
     const wx = ctx.slot4(slot_q)[0..d];
     const f = ctx.slot4(slot_gate)[0..d];
-    const scale = quantVec(ctx, src);
     // `rnn_W` has no bias; only the forget gate does. Marian: `dot(x, W)` and
-    // `affine(x, Wf, bf)`.
-    gemv(ctx, a.w, null, wx, scale, d, d);
-    gemv(ctx, a.wf, a.bf, f, scale, d, d);
+    // `affine(x, Wf, bf)`. Two matmuls, so two alphas under ADR 0012 — and
+    // therefore two quantizations of the same input.
+    gemv(ctx, a.w, null, wx, quantVec(ctx, src, a.w), d, d);
+    gemv(ctx, a.wf, a.bf, f, quantVec(ctx, src, a.wf), d, d);
 
     const out = ctx.slot4(slot_branch)[0..d];
     kernel.ssruGate(ctx.ssruCell(l), wx, f, out);
@@ -142,14 +142,14 @@ fn crossAttention(ctx: *pass.Ctx, a: layout.Attn, l: u32) void {
     const src = branchInput(ctx, x, a.ln_gain, a.ln_bias);
 
     const q = ctx.slot4(slot_q)[0..d];
-    const q_scale = quantVec(ctx, src);
+    const q_scale = quantVec(ctx, src, a.q);
     gemv(ctx, a.q, a.q_bias, q, q_scale, d, d);
 
     const c = ctx.slot4(slot_ctx)[0..d];
     attention.decodeStep(ctx, q, ctx.xattn(l, .k), ctx.xattn(l, .v), c, ctx.src_len);
 
     const out = ctx.slot4(slot_branch)[0..d];
-    const ctx_scale = quantVec(ctx, c);
+    const ctx_scale = quantVec(ctx, c, a.o);
     gemv(ctx, a.o, a.o_bias, out, ctx_scale, d, d);
     merge(ctx, x, out, a.ln_gain, a.ln_bias);
 }
@@ -161,12 +161,12 @@ fn feedForward(ctx: *pass.Ctx, f: layout.Ffn) void {
     const src = branchInput(ctx, x, f.ln_gain, f.ln_bias);
 
     const hidden = ctx.slot4(slot_hidden)[0..ffn];
-    const in_scale = quantVec(ctx, src);
+    const in_scale = quantVec(ctx, src, f.w1);
     gemv(ctx, f.w1, f.bias1, hidden, in_scale, d, ffn);
     kernel.activation(hidden, act(ctx));
 
     const out = ctx.slot4(slot_branch)[0..d];
-    const hidden_scale = quantVec(ctx, hidden);
+    const hidden_scale = quantVec(ctx, hidden, f.w2);
     gemv(ctx, f.w2, f.bias2, out, hidden_scale, ffn, d);
     merge(ctx, x, out, f.ln_gain, f.ln_bias);
 }
@@ -207,9 +207,14 @@ fn normInto(ctx: *pass.Ctx, out: []f32, in: []const f32, ln_gain: u32, ln_bias: 
 /// SPEC §7: dynamic per-row absmax, for a single row, into `qslot(0)`.
 /// Every `gemv` below reads that slot, so the two always appear as adjacent
 /// statements — never as nested expressions.
-fn quantVec(ctx: *pass.Ctx, src: []const f32) f32 {
+fn quantVec(ctx: *pass.Ctx, src: []const f32, m: layout.QuantMat) f32 {
     const n: u32 = @intCast(src.len);
     assert(ctx.qvec.len >= n);
+
+    if (ctx.staticScale(m)) |scale| {
+        kernel.quantizeRowsWith(ctx.qslot(0)[0..n], n, src, n, 1, n, scale);
+        return scale;
+    }
     var scale: [1]f32 = undefined;
     kernel.quantizeRows(ctx.qslot(0)[0..n], n, &scale, src, n, 1, n);
     assert(std.math.isFinite(scale[0]) and scale[0] > 0);
@@ -242,7 +247,7 @@ fn project(ctx: *pass.Ctx, x: []const f32) u32 {
     // explicitly rather than left to argument evaluation order: the aliasing is
     // the whole point, and a reader should not have to know Zig's rules to see
     // that it is deliberate.
-    const scale = quantVec(ctx, x);
+    const scale = quantVec(ctx, x, ctx.sl.emb);
     const logits = ctx.logits[0..n];
     kernel.qgemv(
         logits,

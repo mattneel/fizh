@@ -28,7 +28,9 @@ const math = @import("../kernel/math.zig");
 const trie = @import("../tok/trie.zig");
 
 pub const magic = [4]u8{ 'F', 'I', 'Z', 'H' };
-pub const version: u32 = 1;
+/// 2 adds: `act_quant` in the header, per-matmul `*.alpha` tensors,
+/// `tok.nonbreaking`, and `sl.targets` narrowed to u16.
+pub const version: u32 = 2;
 
 /// SPEC §6: all offsets 64-byte aligned.
 pub const payload_alignment: u64 = 64;
@@ -117,7 +119,9 @@ pub const HParams = extern struct {
     /// 0 = post-norm (Marian default), 1 = pre-norm.
     prenorm: u8,
     tied_embeddings: u8,
-    _reserved0: u8,
+    /// 0 = dynamic per-row absmax (SPEC §7). 1 = the static per-matmul
+    /// multipliers Bergamot ships as `*_QuantMultA` (ADR 0012).
+    act_quant: u8,
     emb_scale: f32,
     norm_eps: f32,
     /// SPEC §12.3: generation is bounded by this times the source length as
@@ -158,7 +162,7 @@ pub const HParams = extern struct {
         if (self.ffn_act > 2) return .bad_artifact;
         if (self.prenorm > 1) return .bad_artifact;
         if (self.tied_embeddings > 1) return .bad_artifact;
-        if (self._reserved0 != 0) return .bad_artifact;
+        if (self.act_quant > 1) return .bad_artifact;
 
         // SPEC §12.6: negative-space assertions, here as validation.
         if (!std.math.isFinite(self.emb_scale) or self.emb_scale <= 0) return .bad_artifact;
@@ -422,7 +426,7 @@ const Ctx = struct {
 
 fn loadShared(c: *Ctx) LoadError!void {
     const d = c.hp.d_model;
-    try quant(c, names.emb, c.sl.emb);
+    try quant(c, names.emb, names.alphaOf(names.emb), c.sl.emb);
     try vecF32(c, names.emb_bias, c.sl.emb_bias, c.hp.vocab_size);
     try vecF32(c, names.enc_ln_gain, c.sl.enc_ln_gain, d);
     try vecF32(c, names.enc_ln_bias, c.sl.enc_ln_bias, d);
@@ -461,8 +465,8 @@ fn nameOf(side: Side, i: u32, comptime stem: []const u8) u64 {
 /// SPEC §8's decoder self-attention slot, filled by Bergamot's SSRU (ADR 0008).
 fn ssru(c: *Ctx, i: u32, a: layout.Ssru) LoadError!void {
     const d = c.hp.d_model;
-    try quant(c, names.dec(i, "rnn.w"), a.w);
-    try quant(c, names.dec(i, "rnn.wf"), a.wf);
+    try quant(c, names.dec(i, "rnn.w"), names.dec(i, "rnn.w.alpha"), a.w);
+    try quant(c, names.dec(i, "rnn.wf"), names.dec(i, "rnn.wf.alpha"), a.wf);
     try vecF32(c, names.dec(i, "rnn.bf"), a.bf, d);
     try vecF32(c, names.dec(i, "rnn.ln.gain"), a.ln_gain, d);
     try vecF32(c, names.dec(i, "rnn.ln.bias"), a.ln_bias, d);
@@ -470,13 +474,13 @@ fn ssru(c: *Ctx, i: u32, a: layout.Ssru) LoadError!void {
 
 fn attn(c: *Ctx, side: Side, i: u32, comptime tag: []const u8, a: layout.Attn) LoadError!void {
     const d = c.hp.d_model;
-    try quant(c, nameOf(side, i, tag ++ ".q.w"), a.q);
+    try quant(c, nameOf(side, i, tag ++ ".q.w"), nameOf(side, i, tag ++ ".q.w.alpha"), a.q);
     try vecF32(c, nameOf(side, i, tag ++ ".q.bias"), a.q_bias, d);
-    try quant(c, nameOf(side, i, tag ++ ".k.w"), a.k);
+    try quant(c, nameOf(side, i, tag ++ ".k.w"), nameOf(side, i, tag ++ ".k.w.alpha"), a.k);
     try vecF32(c, nameOf(side, i, tag ++ ".k.bias"), a.k_bias, d);
-    try quant(c, nameOf(side, i, tag ++ ".v.w"), a.v);
+    try quant(c, nameOf(side, i, tag ++ ".v.w"), nameOf(side, i, tag ++ ".v.w.alpha"), a.v);
     try vecF32(c, nameOf(side, i, tag ++ ".v.bias"), a.v_bias, d);
-    try quant(c, nameOf(side, i, tag ++ ".o.w"), a.o);
+    try quant(c, nameOf(side, i, tag ++ ".o.w"), nameOf(side, i, tag ++ ".o.w.alpha"), a.o);
     try vecF32(c, nameOf(side, i, tag ++ ".o.bias"), a.o_bias, d);
     try vecF32(c, nameOf(side, i, tag ++ ".ln.gain"), a.ln_gain, d);
     try vecF32(c, nameOf(side, i, tag ++ ".ln.bias"), a.ln_bias, d);
@@ -484,9 +488,9 @@ fn attn(c: *Ctx, side: Side, i: u32, comptime tag: []const u8, a: layout.Attn) L
 
 fn ffn(c: *Ctx, side: Side, i: u32, f: layout.Ffn) LoadError!void {
     const d = c.hp.d_model;
-    try quant(c, nameOf(side, i, "ffn.w1"), f.w1);
+    try quant(c, nameOf(side, i, "ffn.w1"), nameOf(side, i, "ffn.w1.alpha"), f.w1);
     try vecF32(c, nameOf(side, i, "ffn.bias1"), f.bias1, c.hp.ffn_dim);
-    try quant(c, nameOf(side, i, "ffn.w2"), f.w2);
+    try quant(c, nameOf(side, i, "ffn.w2"), nameOf(side, i, "ffn.w2.alpha"), f.w2);
     try vecF32(c, nameOf(side, i, "ffn.bias2"), f.bias2, d);
     try vecF32(c, nameOf(side, i, "ffn.ln.gain"), f.ln_gain, d);
     try vecF32(c, nameOf(side, i, "ffn.ln.bias"), f.ln_bias, d);
@@ -539,7 +543,7 @@ fn loadShortlist(c: *Ctx) LoadError!void {
 
 // -- descriptor plumbing ----------------------------------------------------
 
-fn quant(c: *Ctx, hash: u64, m: layout.QuantMat) LoadError!void {
+fn quant(c: *Ctx, hash: u64, alpha_hash: u64, m: layout.QuantMat) LoadError!void {
     const d = find(c.blob, c.count, hash) orelse return error.MissingTensor;
     if (@as(DType, @enumFromInt(d.dtype)) != .i8) return error.BadArtifact;
     if (d.rank != 2 or d.dims[0] != m.n or d.dims[1] != m.k) return error.BadArtifact;
@@ -548,6 +552,20 @@ fn quant(c: *Ctx, hash: u64, m: layout.QuantMat) LoadError!void {
     const data = c.blob[@intCast(d.offset)..][0..@intCast(d.nbytes)];
     const scales = c.blob[@intCast(d.scale_offset)..][0 .. m.n * 4];
     repack.quantMatrix(c.slot, m, data, scales) catch return error.BadArtifact;
+
+    // The static activation multiplier, present only when the converter was
+    // asked for it. `act_quant == 1` without one is a malformed artifact, not
+    // a silent fallback: the two paths produce different numbers.
+    const a = find(c.blob, c.count, alpha_hash);
+    if (c.hp.act_quant == 1) {
+        const t = a orelse return error.MissingTensor;
+        if (@as(DType, @enumFromInt(t.dtype)) != .f32 or t.rank != 1 or t.dims[0] != 1) {
+            return error.BadArtifact;
+        }
+        repack.floats(c.slot, m.alpha, c.blob[@intCast(t.offset)..][0..4], 1) catch return error.BadArtifact;
+        const v = f32View(c.slot, m.alpha, 1)[0];
+        if (!(v > 0)) return error.BadArtifact;
+    }
 }
 
 fn vecF32(c: *Ctx, hash: u64, off: u32, count: u32) LoadError!void {

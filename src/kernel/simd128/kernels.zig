@@ -311,6 +311,7 @@ pub fn activation(x: []f32, kind: Act) void {
 /// polynomial rather than an instruction (ADR 0003). Vectorizing the surrounding
 /// arithmetic without vectorizing `exp` buys nothing, so this is `ref`'s.
 pub const ssruGate = ref.ssruGate;
+pub const quantizeRowsWith = ref.quantizeRowsWith;
 
 pub const softmax = ref.softmax;
 pub const argmax = ref.argmax;

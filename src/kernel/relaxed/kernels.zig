@@ -70,6 +70,7 @@ pub const residualAdd = simd.residualAdd;
 pub const layerNorm = simd.layerNorm;
 pub const activation = simd.activation;
 pub const ssruGate = simd.ssruGate;
+pub const quantizeRowsWith = simd.quantizeRowsWith;
 pub const softmax = simd.softmax;
 pub const argmax = simd.argmax;
 pub const embedGather = simd.embedGather;

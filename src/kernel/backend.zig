@@ -41,7 +41,7 @@ comptime {
             "qgemm",       "qgemv",     "quantizeRows", "layerNorm",
             "softmax",     "activation", "residualAdd", "argmax",
             "embedGather", "gatherRows", "axpy",        "dot",
-            "ssruGate",
+            "ssruGate",     "quantizeRowsWith",
         }) |op| {
             if (!@hasDecl(B, op)) @compileError("backend " ++ B.name ++ " is missing " ++ op);
         }

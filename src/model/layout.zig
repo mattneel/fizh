@@ -27,6 +27,10 @@ pub fn rowStride(k: u32) u32 {
 pub const QuantMat = struct {
     data: u32,
     scales: u32,
+    /// Byte offset of this matmul's static activation multiplier — Bergamot's
+    /// "alpha" (ADR 0012). Zero when the artifact ships none, in which case the
+    /// activation scale is computed dynamically per SPEC §7.
+    alpha: u32,
     n: u32,
     k: u32,
 
@@ -39,7 +43,13 @@ pub const QuantMat = struct {
     }
 
     pub fn shift(self: QuantMat, by: u32) QuantMat {
-        return .{ .data = self.data + by, .scales = self.scales + by, .n = self.n, .k = self.k };
+        return .{
+            .data = self.data + by,
+            .scales = self.scales + by,
+            .alpha = if (self.alpha == 0) 0 else self.alpha + by,
+            .n = self.n,
+            .k = self.k,
+        };
     }
 };
 
@@ -250,7 +260,8 @@ const Cursor = struct {
     fn quant(self: *Cursor, n: u32, k: u32) QuantMat {
         const data = self.take(@as(u64, n) * rowStride(k));
         const scales = self.take(@as(u64, n) * 4);
-        return .{ .data = data, .scales = scales, .n = n, .k = k };
+        const alpha = self.take(4);
+        return .{ .data = data, .scales = scales, .alpha = alpha, .n = n, .k = k };
     }
 
     fn ssru(self: *Cursor, d: u32) Ssru {
@@ -312,7 +323,7 @@ fn bergamotHParams() format.HParams {
         .ffn_act = 0,
         .prenorm = 0,
         .tied_embeddings = 1,
-        ._reserved0 = 0,
+        .act_quant = 0,
         .emb_scale = 16.0,
         .norm_eps = 1e-9,
         .max_length_factor = 3.0,
