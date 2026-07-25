@@ -1,0 +1,18 @@
+# Locked-in output of the real Mozilla Bergamot es-en tiny model through fizh.
+#
+# These are not "correct translations" — they are *this model's* translations,
+# recorded so that a change to the graph, the converter, the tokenizer or the
+# kernels cannot silently alter them. A diff here is either a bug or a decision;
+# either way somebody has to look.
+#
+# Regenerate deliberately, and say why in the commit:
+#   tools/fetch-model.sh es en && python3 tools/regress.py --update
+#
+# source<TAB>expected
+Hola, ¿qué tal?	Hey, how are you?
+El gato negro duerme en la mesa de la cocina.	The black cat sleeps on the kitchen table.
+Me llamo Ana y vivo en Madrid.	I'm Ana and I live in Madrid.
+Buenos días, ¿cómo estás?	Good morning, how are you?
+No puedo ir mañana porque tengo trabajo.	I can't go tomorrow because I have a job.
+¿Puedes traer pan cuando vuelvas?	Can you get bread when you get back?
+El tren llega a las ocho de la mañana.	The train arrives at 8 a.m.

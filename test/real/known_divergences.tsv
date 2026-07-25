@@ -1,0 +1,12 @@
+# Cases where fizh and bergamot-translator disagree, with the diagnosis.
+#
+# These are NOT recorded as golden output, because a golden file that encodes
+# wrong output reads a future fix as a regression. Each row carries what fizh
+# produces, what bergamot produces, and why they differ. `tools/regress.py`:
+#
+#   * fizh still produces its column      -> pass, still diverging
+#   * fizh now produces bergamot's column -> pass, reported RESOLVED, re-record
+#   * fizh produces a third thing         -> FAIL, something else moved
+#
+# source <TAB> fizh <TAB> bergamot <TAB> diagnosis
+La reunión se ha aplazado hasta el jueves.	of the meeting has been postponed until Thursday.	The meeting has been postponed until Thursday.	step-0 near-tie: logits are The=9.6698 of=9.6161, a margin of 0.054 against the ~0.26 int8 quantization noise floor measured in ADR 0007. Not a state bug — bisected identical across repeat calls, fresh processes, and preceding input, and the correct token is in the shortlist. fizh uses SPEC §7 dynamic per-row absmax; bergamot uses the static per-tensor alphas the artifact ships. Fixing this means adopting int8shiftAlphaAll, which SPEC §7 deliberately does not.
