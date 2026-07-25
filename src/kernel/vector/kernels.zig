@@ -76,7 +76,25 @@ pub fn qgemm(
     assert(a_stride >= k and w_stride >= k and out_stride >= n);
     assert(a_scales.len >= m and w_scales.len >= n);
 
-    for (0..m) |row| {
+    // Blocked over rows. The naive form is `m` calls to `qgemv`, which streams
+    // the whole `k x n` weight matrix once per row: at the encoder's FFN shape
+    // (k=256, n=1536, m=164) that is a 393 KiB matrix read 164 times, ~64 MiB
+    // of weight traffic for one matmul. Weights do not fit L1 and the traffic
+    // is the cost.
+    //
+    // Doing `tile` rows at once reuses each weight vector `tile` times from a
+    // register, cutting that traffic by the same factor. This is the register
+    // blocking intgemm gets its advantage from, and it is the reason a
+    // dot-product instruction was never the main gap.
+    //
+    // **Bit-exact against `ref/` and against the unblocked form**: each output
+    // is still the same products summed into the same lanes in the same order.
+    // Blocking changes which loads happen, not which additions.
+    var row: usize = 0;
+    while (row + tile <= m) : (row += tile) {
+        qgemmTile(out, out_stride, a, a_stride, a_scales, w, w_stride, w_scales, bias, row, k, n);
+    }
+    while (row < m) : (row += 1) {
         qgemv(
             out[row * out_stride ..][0..n],
             a[row * a_stride ..][0..k],
@@ -88,6 +106,67 @@ pub fn qgemm(
             k,
             n,
         );
+    }
+}
+
+/// Rows processed together by `qgemm`.
+///
+/// Four, not more, and the reason is `lanes`. `suggestVectorLength(i8)` is 32
+/// on AVX2, which makes `I32x` a `@Vector(32, i32)` — 128 bytes, four `ymm`
+/// registers *each*. Four accumulators is therefore already the whole register
+/// file, and measuring tile=8 confirms it: 75.25 ms against tile=4's 75.35, i.e.
+/// nothing, because the extra rows spill.
+///
+/// Going faster from here needs the accumulator width decoupled from the load
+/// width, not a bigger tile.
+const tile: usize = 4;
+
+fn qgemmTile(
+    out: []f32,
+    out_stride: u32,
+    a: []const i8,
+    a_stride: u32,
+    a_scales: []const f32,
+    w: []const i8,
+    w_stride: u32,
+    w_scales: []const f32,
+    bias: ?[]const f32,
+    row: usize,
+    k: u32,
+    n: u32,
+) void {
+    var rows: [tile][]const i8 = undefined;
+    inline for (0..tile) |r| rows[r] = a[(row + r) * a_stride ..][0..k];
+
+    for (0..n) |col| {
+        const wcol = w[col * w_stride ..][0..k];
+        var acc: [tile]I32x = @splat(@splat(0));
+
+        var i: usize = 0;
+        while (i + lanes <= k) : (i += lanes) {
+            // One weight load, `tile` uses. That is the whole point.
+            const bv: I8x = wcol[i..][0..lanes].*;
+            const bw: I16x = bv;
+            inline for (0..tile) |r| {
+                const av: I8x = rows[r][i..][0..lanes].*;
+                acc[r] += @as(I32x, @as(I16x, av) * bw);
+            }
+        }
+
+        var tail: [tile]i32 = @splat(0);
+        while (i < k) : (i += 1) {
+            const bs = @as(i32, wcol[i]);
+            inline for (0..tile) |r| tail[r] += @as(i32, rows[r][i]) * bs;
+        }
+
+        const w_scale = w_scales[col];
+        assert(std.math.isFinite(w_scale) and w_scale > 0);
+        const b = if (bias) |bb| bb[col] else 0;
+        inline for (0..tile) |r| {
+            const total = @reduce(.Add, acc[r]) + tail[r];
+            out[(row + r) * out_stride + col] =
+                @as(f32, @floatFromInt(total)) * (a_scales[row + r] * w_scale) + b;
+        }
     }
 }
 
