@@ -19,7 +19,8 @@ failure is a hard stop for that pair and is reported, never skipped.
 
 ## What it found
 
-Five defects, none of which either development pair could have exposed.
+Five defects and one artifact problem, none of which either development pair
+could have exposed.
 
 ### 1. The fetcher selected pre-release models — 21 of 105 pairs
 
@@ -132,13 +133,13 @@ named rather than averaged away.
 
 ## The lesson
 
-**Every one of these five is a limit that lived in the harness or the tooling
-rather than in the runtime, and every one presented as a property of a
+**Every one of the five defects was a limit that lived in the harness or the
+tooling rather than in the runtime, and every one presented as a property of a
 language.** "fizh is bad at Czech" was a wrong sentence about a real
 measurement. The sweep's value is not that it found bugs; it is that it made
 each one a line in a table next to a hundred that worked, which is what turned
 "bad at Czech" into "selected an alpha for 21 pairs".
 
 Two pairs cannot do that. A pair that fails loudly is a fine outcome; a pair
-that translates badly and quietly is the one this exists to catch, and four of
-the five above were quiet.
+that translates badly and quietly is the one this exists to catch, and the
+worst of them — 21 pairs on pre-release weights — was completely silent.
