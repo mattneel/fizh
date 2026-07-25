@@ -217,10 +217,19 @@ def convert(args) -> int:
     # ADR 0017: ship the model's own `nmt_nfkc` table rather than reimplementing
     # Unicode normalization. Refuse an unrecognised normalizer instead of
     # silently applying the wrong rules.
-    norm_name, charsmap = charsmap_mod.read_spec(args.vocab)
+    norm_name, charsmap, norm_flags = charsmap_mod.read_spec(args.vocab)
     if charsmap:
-        if norm_name != "nmt_nfkc":
-            raise SystemExit(f"unsupported normalizer {norm_name!r}; expected nmt_nfkc")
+        # Gate on behaviour, not on the label. `nmt_nfkc` and `user_defined`
+        # ship the same kind of compiled table and the same structural flags;
+        # refusing the latter by name blocked en-bs and en-sr for nothing. What
+        # would genuinely break is a normalizer that skips the dummy prefix or
+        # keeps runs of whitespace, because src/tok/unigram.zig does both
+        # unconditionally.
+        bad = [k for k, v in norm_flags.items() if not v]
+        if bad:
+            raise SystemExit(
+                f"normalizer {norm_name!r} disables {', '.join(bad)}; "
+                f"src/tok/unigram.zig assumes all three")
         art.add_u8("tok.charsmap", charsmap)
         print(f"  normalizer: {norm_name}, {len(charsmap)} bytes", file=sys.stderr)
     else:

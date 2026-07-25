@@ -36,26 +36,44 @@ def _varint(buf: bytes, i: int) -> tuple[int, int]:
             return v, i
 
 
-def read_spec(spm_path: Path) -> tuple[str, bytes]:
-    """Returns (normalizer name, precompiled_charsmap) from a .spm file."""
+def read_spec(spm_path: Path) -> tuple[str, bytes, dict]:
+    """Returns (normalizer name, precompiled_charsmap, structural flags).
+
+    The flags are SentencePiece's `NormalizerSpec` booleans: `add_dummy_prefix`
+    (3), `remove_extra_whitespaces` (4) and `escape_whitespaces` (5), each
+    defaulting to true. They describe what the normalizer does *around* the
+    charsmap, and they are what a consumer has to match — the `name` is a label
+    for how the table was built, not for what it does. `nmt_nfkc` and
+    `user_defined` in Firefox's registry differ only in that label.
+    """
     raw = spm_path.read_bytes()
+    flags = {"add_dummy_prefix": True, "remove_extra_whitespaces": True,
+             "escape_whitespaces": True}
     i = 0
     while i < len(raw):
         tag, i = _varint(raw, i)
         ln, i = _varint(raw, i)
         if tag >> 3 == 3:  # normalizer_spec
             sub, j, name, charsmap = raw[i:i + ln], 0, "", b""
+            names = {3: "add_dummy_prefix", 4: "remove_extra_whitespaces",
+                     5: "escape_whitespaces"}
             while j < len(sub):
                 t, j = _varint(sub, j)
-                sl, j = _varint(sub, j)
-                if t >> 3 == 1:
-                    name = sub[j:j + sl].decode()
-                elif t >> 3 == 2:
-                    charsmap = sub[j:j + sl]
-                j += sl
-            return name, charsmap
+                fn, wt = t >> 3, t & 7
+                if wt == 2:
+                    sl, j = _varint(sub, j)
+                    if fn == 1:
+                        name = sub[j:j + sl].decode()
+                    elif fn == 2:
+                        charsmap = sub[j:j + sl]
+                    j += sl
+                else:
+                    v, j = _varint(sub, j)
+                    if fn in names:
+                        flags[names[fn]] = bool(v)
+            return name, charsmap, flags
         i += ln
-    return "", b""
+    return "", b"", flags
 
 
 class Charsmap:
@@ -130,8 +148,9 @@ class Charsmap:
 if __name__ == "__main__":
     import sys
 
-    name, blob = read_spec(Path(sys.argv[1]))
+    name, blob, flags = read_spec(Path(sys.argv[1]))
     cm = Charsmap(blob)
+    print(f"  flags {flags}")
     print(f"  normalizer {name}, charsmap {len(blob)} bytes, "
           f"{len(cm.units)} trie units, {len(cm.pool)} bytes of replacements")
     for line in sys.stdin:
