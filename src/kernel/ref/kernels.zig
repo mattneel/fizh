@@ -3,7 +3,7 @@
 //! Slow, obvious, and permanent. Every loop runs in index order and every
 //! reduction accumulates in a single scalar, because SPEC §3 forbids
 //! `@setFloatMode(.optimized)` here and I9 needs a fixed reduction order. When
-//! `simd128/` disagrees with this file, this file is right.
+//! `vector/` disagrees with this file, this file is right.
 //!
 //! Nothing here allocates, and every buffer is the caller's. SPEC §12.5: shapes,
 //! strides, alignment and quantized ranges are asserted at every entry.

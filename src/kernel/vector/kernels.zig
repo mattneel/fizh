@@ -1,12 +1,17 @@
-//! kernel/simd128/kernels.zig — the SIMD128 backend. Invariant I1.
+//! kernel/vector/kernels.zig — the vector backend. Invariant I1.
 //!
 //! Hand-written and architecture-neutral: `@Vector`, `@shuffle`, `@select` and
 //! `@reduce` with comptime-known indices only (SPEC §3), which is exactly the
-//! subset that lowers to v128 on wasm and to NEON or SSE natively. Nothing here
-//! is x86-tuned, because the devices are ARM and that is the reason fizh exists.
+//! subset that lowers to v128 on wasm, NEON on aarch64 and SSE/AVX on x86_64.
+//! Nothing here is x86-tuned, because the devices are ARM and that is the
+//! reason fizh exists.
+//!
+//! This was called `simd128/` until an audit found it contains no wasm and no
+//! target branches at all — 245 lines of portable `@Vector`. The old name
+//! encoded a constraint that was never real (ADR 0023).
 //!
 //! **The integer paths are bit-exact against `ref/`.** Integer addition is
-//! associative, so accumulating into sixteen `i32` lanes and reducing at the end
+//! associative, so accumulating into `i32` lanes and reducing at the end
 //! produces the identical sum to a scalar loop. That is why SPEC §7 insists on
 //! `i32` accumulation: it makes the fast path and the oracle the same function,
 //! not merely close.
@@ -20,18 +25,36 @@ const assert = std.debug.assert;
 const ref = @import("../ref/kernels.zig");
 const math = @import("../math.zig");
 
-pub const name = "simd128";
+pub const name = "vector";
 pub const Act = ref.Act;
 
-/// One v128 of `i8`.
-const lanes: usize = 16;
+/// Integer lane count, from the target rather than from a guess.
+///
+/// `suggestVectorLength` returns null on wasm (no CPU model to ask), 16 on
+/// aarch64, and 32 on an x86_64 with AVX2. Widening the integer path is free of
+/// consequence: SPEC §7 accumulates in `i32`, integer addition is associative,
+/// so N lanes and a final reduce give bit-identical sums for every N. That is
+/// what keeps this backend bit-exact against `ref/` on every target.
+const lanes: usize = std.simd.suggestVectorLength(i8) orelse 16;
 const I8x = @Vector(lanes, i8);
 const I16x = @Vector(lanes, i16);
 const I32x = @Vector(lanes, i32);
 
-/// One v128 of `f32`.
+/// Float lane count, deliberately **fixed** where the integer one is not.
+///
+/// Float addition is not associative, so a lane count decides reduction order
+/// and reduction order decides the last bits. Taking the target's suggestion
+/// here would make a native build round differently from the wasm one — the
+/// same input, two answers — which is exactly the divergence I9 exists to
+/// forbid. It would also buy nothing where it matters: the suggestion is 4 on
+/// aarch64 and unavailable on wasm, so only an AVX2 desktop would ever widen,
+/// and no phone would. ADR 0023.
 const flanes: usize = 4;
 const F32x = @Vector(flanes, f32);
+
+comptime {
+    assert(lanes >= flanes and lanes % flanes == 0);
+}
 
 // -- ops that are worth vectorizing -----------------------------------------
 

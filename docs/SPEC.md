@@ -195,7 +195,7 @@ src/
     trie.zig
   kernel/
     ref/              scalar f32 oracle (I2)
-    simd128/
+    vector/
     relaxed/
   graph/
     encoder.zig
@@ -265,7 +265,13 @@ Artifact ABI. Specified before any kernel is written.
 
 ## 8. Kernels
 
-Every op gets a `ref/` implementation first (I2); `simd128/` and `relaxed/` are optimizations validated against it.
+Every op gets a `ref/` implementation first (I2); `vector/` and `relaxed/` are optimizations validated against it.
+
+`vector/` was called `simd128/` until an audit counted what was actually in it: 245 lines of `@Vector`, `@shuffle`, `@select` and `@reduce`, with no wasm builtins, no inline assembly and no target branches. The only target-specific code in the whole kernel tree is three lines of feature detection in `backend.zig` — 867 of 870 lines are target-neutral. The old name encoded a constraint that was never real (ADR 0023).
+
+Integer lane count comes from `std.simd.suggestVectorLength(i8)`, which is 16 on aarch64, 32 on an x86_64 with AVX2, and null on wasm (no CPU model to ask), where it falls back to 16. Widening the integer path is free of consequence because SPEC §7 accumulates in `i32` and integer addition is associative, so any lane count reduces to the identical sum — which is what keeps `vector/` bit-exact against `ref/` on every target.
+
+**The float lane count is deliberately fixed at 4.** Float addition is not associative, so lane count decides reduction order and reduction order decides the last bits; taking the target's suggestion would make a native build round differently from a wasm one. It would also buy nothing where it matters, since the suggestion is 4 on aarch64 and unavailable on wasm — only an AVX2 desktop would ever widen, and no phone would.
 
 | Op | Regime |
 |---|---|
@@ -372,7 +378,7 @@ The asymmetry is what makes it worth a rule. A false "this language is hard" cos
 | Tier | What | Gate |
 |---|---|---|
 | T0 | Per-op golden vectors from `tools/reference.py`, checked in | every commit |
-| T1 | Differential: `ref/` vs `simd128/` vs `relaxed/`, max-abs-error per tensor | every commit |
+| T1 | Differential: `ref/` vs `vector/` vs `relaxed/`, max-abs-error per tensor | every commit |
 | T2 | Full-model differential against the Python oracle, error profile per layer | every commit |
 | T3 | Fuzz (0.16 integrated fuzzer) | nightly |
 | T4 | End-to-end quality, chrF++ | per artifact |

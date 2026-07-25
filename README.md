@@ -118,7 +118,7 @@ zig build eval      T4 chrF++, per corpus, never averaged
 | `src/abi.zig` `src/arena.zig` `src/route.zig` | Status codes and config; region carving; direct/pivot resolution. |
 | `src/model/` | `format.zig` is **the** validation boundary; `layout.zig` places every weight in a slot; `repack.zig` gets it there; `names.zig` hashes names. |
 | `src/tok/` | `trie.zig` walks the vocabulary; `unigram.zig` runs Viterbi over the byte lattice. |
-| `src/kernel/` | `ref/` is the scalar oracle (I2); `simd128/` and `relaxed/` are validated against it. `math.zig` is the libm that isn't there. |
+| `src/kernel/` | `ref/` is the scalar oracle (I2); `vector/` and `relaxed/` are validated against it — portable `@Vector`, no target branches. `math.zig` is the libm that isn't there. |
 | `src/graph/` | `encoder.zig`, `decoder.zig` (SSRU), `attention.zig`, `shortlist.zig`, `pass.zig`. |
 | `tools/marian.py` | Readers for Marian's binary model and lexical shortlist. |
 | `tools/bergamot.py` | A Bergamot bundle → `.fzm`. |

@@ -20,7 +20,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const ref = @import("../ref/kernels.zig");
-const simd = @import("../simd128/kernels.zig");
+const simd = @import("../vector/kernels.zig");
 
 pub const name = "relaxed";
 pub const Act = ref.Act;
