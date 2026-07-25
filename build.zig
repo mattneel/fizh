@@ -324,14 +324,23 @@ pub fn build(b: *std.Build) void {
     const run_chrf = b.addSystemCommand(&.{ "python3", "tools/eval/chrf.py" });
     run_chrf.has_side_effects = true;
 
+    // A step that emits a *number* gates on a real fetched artifact. Synthetic
+    // models have broken a measurement gate twice: the whole suite passed with
+    // the wrong decoder architecture (ADR 0008), and §14 timed a decode loop
+    // that terminated at step 0 (ADR 0016). Both times the number looked fine.
+    // So `eval` and `bench` run against a real model or they are not
+    // measurements, and neither is in `ci` — see the `ci` step below.
     const run_eval = b.addSystemCommand(&.{ "python3", "tools/eval/run.py" });
     run_eval.addArgs(&.{ "--model", bench_model, "--src", "es", "--tgt", "en" });
     if (b.args) |extra| run_eval.addArgs(extra);
     run_eval.has_side_effects = true;
-    run_eval.step.dependOn(&build_bench_model.step);
+    if (!have_real) run_eval.step.dependOn(&build_bench_model.step);
     run_eval.step.dependOn(b.getInstallStep());
 
-    const eval_step = b.step("eval", "SPEC §13 T4: chrF++ per corpus, reported separately");
+    const eval_step = b.step("eval", if (have_real)
+        "SPEC §13 T4: chrF++ per corpus, reported separately"
+    else
+        "SPEC §13 T4 -- NOT A MEASUREMENT without a real model (tools/fetch-model.sh)");
     eval_step.dependOn(&run_chrf.step);
     eval_step.dependOn(&run_eval.step);
 
@@ -359,6 +368,9 @@ pub fn build(b: *std.Build) void {
 
     // ---- convenience ------------------------------------------------------
 
+    // `eval` and `bench` are deliberately absent: they emit numbers, and a
+    // number from a synthetic artifact is not a measurement (ADR 0016). `real`
+    // is here because it gates on a fetched model and skips cleanly without one.
     const ci_step = b.step("ci", "wasm + test + tiger + check + convert-selftest + host + oracle");
     ci_step.dependOn(wasm_step);
     ci_step.dependOn(test_step);

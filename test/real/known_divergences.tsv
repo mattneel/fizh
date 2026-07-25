@@ -10,7 +10,17 @@
 #
 # source <TAB> fizh <TAB> bergamot <TAB> diagnosis
 #
-# -- Currently empty, and the reason is worth keeping --------------------------
+# -- The two live rows --------------------------------------------------------
+#
+# Both are residual arithmetic divergence, not defects. They diverge late (75%
+# and 45% through the target), both readings are fluent and correct, and the
+# per-token divergence hazard that produces them is ~0.025, flat across
+# position — which is what two int8 implementations rounding differently under
+# greedy decode look like. es→en overall sits at −0.10 chrF++ with a 95%
+# interval of [−0.35, +0.15]. There is nothing here to fix; these are recorded
+# so that a change to them is noticed rather than absorbed.
+#
+# -- The one that was resolved, and the reason it is worth keeping -------------
 #
 # The one row this file ever held was `La reunión se ha aplazado hasta el
 # jueves.`, where fizh opened with "of the meeting" against bergamot's "The
@@ -31,3 +41,5 @@
 # reference. It is evidence that *your* two candidates are close. Before
 # calling a divergence irreducible, check the position — this one sat at token
 # 0 on 42% of segments, and no rounding artifact is that punctual.
+No puedo ir mañana porque tengo trabajo.	I can't go tomorrow because I have a job.	I can't go tomorrow because I have work.	residual arithmetic divergence: first differs at target token 9 of 12, 75% through. Both readings are correct — 'trabajo' is work and a job. Not positional, not a state bug: the hazard curve is flat (ADR 0015) and es->en is -0.10 chrF++ [-0.35, +0.15] over 500 segments.
+El tren llega a las ocho de la mañana.	The train arrives at 8 a.m.	The train arrives at eight in the morning.	residual arithmetic divergence: first differs at target token 5 of 11, 45% through. Numeral-vs-words is a coin-flip the model makes on a small margin; fizh's reading is arguably the better one, which is exactly why this is recorded rather than 'fixed'.
