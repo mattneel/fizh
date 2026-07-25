@@ -27,6 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The converter is numpy the whole way down: quantized reshapes, scale
+      # arithmetic, the shortlist. Nothing else is needed.
+      - name: Install converter dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy
+
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
