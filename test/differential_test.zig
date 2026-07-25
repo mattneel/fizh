@@ -1,4 +1,4 @@
-//! SPEC §13 T1 — `ref/` vs `simd128/` vs `relaxed/`, max-abs-error per op.
+//! SPEC §13 T1 — `ref/` vs `vector/`, max-abs-error per op.
 //!
 //! This is why I2 exists. It runs in one process with no FFI, so a jump in
 //! error at one op localizes a transposed stride in minutes rather than days.

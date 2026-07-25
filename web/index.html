@@ -15,9 +15,8 @@
   on whatever device you opened it with.</p>
   <p class="sub"><strong>Invariant I1</strong> says fizh exists because
   Mozilla's engine is intgemm-based and x86-tuned while phones are ARM.
-  Testing that needs <em>bergamot itself, on this phone</em> — comparing fizh
-  against its own baseline build measures relaxed SIMD, which is a different
-  question. Both are below, in separate tables.</p>
+  Testing that needs <em>bergamot itself, on this phone</em>, which is what the
+  first table is.</p>
   <dl class="build" id="build"></dl>
 </header>
 
@@ -35,9 +34,9 @@
       <span>Also run bergamot (+5 MiB engine, +35 MiB bundle)</span>
     </label>
   </div>
-  <p class="note">Detection instantiates a 92-byte probe module that uses one
-  relaxed instruction (SPEC §3, ADR 0006). Both fizh builds are measured in one
-  run, so relaxed-vs-baseline comes off one device under one thermal state.</p>
+  <p class="note">fizh ships one artifact. The <code>+relaxed_simd</code>
+  variant and its probe module were removed: the artifact was byte-identical,
+  and before that the feature made float code <em>slower</em> (ADR 0025).</p>
 </section>
 
 <section>

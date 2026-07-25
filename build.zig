@@ -3,7 +3,7 @@
 //! Two wasm artifacts, one native test binary, and the mechanical half of
 //! SPEC §12 enforced as build steps.
 //!
-//!   zig build wasm    fizh.baseline.wasm + fizh.relaxed.wasm into zig-out/wasm
+//!   zig build wasm    fizh.wasm into zig-out/wasm
 //!   zig build test    native differential + unit tests (T0/T1/T2)
 //!   zig build tiger   Tiger Style greps over src/ (SPEC §12)
 //!   zig build check   wasm budget audit: imports, exports, gzipped size (SPEC §3)
@@ -21,8 +21,6 @@ const baseline_features = [_]std.Target.wasm.Feature{
     .nontrapping_fptoint,
     .mutable_globals,
 };
-
-const relaxed_features = baseline_features ++ [_]std.Target.wasm.Feature{.relaxed_simd};
 
 /// SPEC §3 budgets.
 const max_gzipped_bytes: u32 = 200 * 1024;
@@ -47,34 +45,18 @@ pub fn build(b: *std.Build) void {
 
     // ---- wasm artifacts ---------------------------------------------------
 
-    const baseline = addWasm(b, "fizh.baseline", &baseline_features, opt_import);
-    const relaxed = addWasm(b, "fizh.relaxed", &relaxed_features, opt_import);
+    // One artifact. There was a second, `+relaxed_simd`, and it was
+    // byte-identical to this one while being measurably slower before that —
+    // see ADR 0025.
+    const wasm_art = addWasm(b, "fizh", &baseline_features, opt_import);
 
-    const install_baseline = b.addInstallArtifact(baseline, .{
+    const install_wasm = b.addInstallArtifact(wasm_art, .{
         .dest_dir = .{ .override = .{ .custom = "wasm" } },
     });
-    const install_relaxed = b.addInstallArtifact(relaxed, .{
-        .dest_dir = .{ .override = .{ .custom = "wasm" } },
-    });
 
-    // SPEC §3: "Host picks via probe-module feature detection." Written out by
-    // hand rather than compiled — see ADR 0006 and tools/make_probe.zig.
-    const make_probe = b.addExecutable(.{
-        .name = "make-probe",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/make_probe.zig"),
-            .target = native_target,
-            .optimize = .Debug,
-        }),
-    });
-    const run_make_probe = b.addRunArtifact(make_probe);
-    const probe_bin = run_make_probe.addOutputFileArg("fizh.probe.wasm");
-    const install_probe = b.addInstallFileWithDir(probe_bin, .{ .custom = "wasm" }, "fizh.probe.wasm");
 
-    const wasm_step = b.step("wasm", "Build both wasm artifacts and the feature probe");
-    wasm_step.dependOn(&install_baseline.step);
-    wasm_step.dependOn(&install_relaxed.step);
-    wasm_step.dependOn(&install_probe.step);
+    const wasm_step = b.step("wasm", "Build the wasm artifact");
+    wasm_step.dependOn(&install_wasm.step);
     b.getInstallStep().dependOn(wasm_step);
 
     // ---- native tests -----------------------------------------------------
@@ -121,7 +103,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const check_step = b.step("check", "Audit the wasm artifacts against the SPEC §3 budgets");
-    for ([_]*std.Build.Step.Compile{ baseline, relaxed }) |artifact| {
+    for ([_]*std.Build.Step.Compile{wasm_art}) |artifact| {
         const run_audit = b.addRunArtifact(auditor);
         run_audit.addFileArg(artifact.getEmittedBin());
         run_audit.addArgs(&.{
@@ -133,11 +115,6 @@ pub fn build(b: *std.Build) void {
         check_step.dependOn(&run_audit.step);
     }
 
-    const run_probe_audit = b.addRunArtifact(auditor);
-    run_probe_audit.addFileArg(probe_bin);
-    run_probe_audit.addArgs(&.{ "--max-gzip=4096", "--max-imports=0", "--require-relaxed" });
-    run_probe_audit.has_side_effects = true;
-    check_step.dependOn(&run_probe_audit.step);
 
     // ---- converter agreement ---------------------------------------------
     //

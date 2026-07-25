@@ -2,11 +2,13 @@
 //
 // Two questions, two tables, deliberately not blended:
 //
-//   I1        fizh against *bergamot* on this phone. That is the claim the
-//             project rests on: bergamot's engine is intgemm-based and x86-tuned
-//             while phones are ARM. Comparing fizh to itself cannot test it.
-//   SIMD      fizh relaxed against fizh baseline. That measures relaxed SIMD,
-//             and it is a different question with a different answer.
+// The question is I1: fizh against *bergamot* on this phone. That is the claim
+// the project rests on — bergamot's engine is intgemm-based and x86-tuned while
+// phones are ARM — and comparing fizh to itself could never test it.
+//
+// There used to be a second fizh column, `+relaxed_simd`. It is gone: the
+// artifact was byte-identical and the feature made float code slower before
+// that (ADR 0025).
 
 const $ = (id) => document.getElementById(id);
 
@@ -87,14 +89,6 @@ function onProgress({ what, got, total }) {
   $("bar").style.width = total ? `${(100 * got) / total}%` : "0%";
 }
 
-async function detectRelaxed() {
-  try {
-    const probe = await fetch("./fizh.probe.wasm");
-    if (!probe.ok) return false;
-    return WebAssembly.validate(await probe.arrayBuffer());
-  } catch { return false; }
-}
-
 const round = (x) => (x === null || x === undefined ? null : Math.round(x * 100) / 100);
 
 function casesFor(set) {
@@ -122,16 +116,15 @@ async function benchAll(kind, cases) {
   return out;
 }
 
-async function runFizh(set, relaxed) {
+async function runFizh(set) {
   spawn("fizh");
-  const wasmUrl = relaxed ? "./fizh.relaxed.wasm" : "./fizh.baseline.wasm";
   const info = await call("fizh", "load", {
-    wasmUrl,
+    wasmUrl: "./fizh.wasm",
     models: set.models.map((m) => ({ pair: m.pair, url: `./models/${m.file}` })),
   });
   const cases = await benchAll("fizh", casesFor(set));
   return {
-    engine: relaxed ? "fizh-relaxed" : "fizh-baseline",
+    engine: "fizh",
     wasm_bytes: info.wasm_bytes,
     cold_start_ms: round(info.cold_start_ms),
     arena_bytes: info.arena_bytes,
@@ -192,7 +185,6 @@ async function run() {
   const started = new Date().toISOString();
   const t0 = performance.now();
   const wantBerg = $("with-bergamot").checked;
-  const relaxedAvailable = await detectRelaxed();
 
   const engines = [];
   const failures = [];
@@ -201,8 +193,7 @@ async function run() {
     catch (err) { failures.push({ engine: label, error: err.message, fatal: !!err.fatal }); }
   };
 
-  if (relaxedAvailable) await attempt("fizh-relaxed", () => runFizh(set, true));
-  await attempt("fizh-baseline", () => runFizh(set, false));
+  await attempt("fizh", () => runFizh(set));
   if (wantBerg) await attempt("bergamot", () => runBergamot(set));
 
   const result = {
@@ -214,7 +205,6 @@ async function run() {
       short_words: 12, long_words: 120, paragraph_sentences: PARA_SENTENCES,
       warmup: WARMUP, runs: RUNS,
     },
-    relaxed_simd_supported: relaxedAvailable,
     engines,
     failures,
     conditions: conditions(),
@@ -282,7 +272,7 @@ const ms = (x) => (x === null || x === undefined ? "—" : `${x} ms`);
 function render(r) {
   $("results-section").hidden = false;
   const find = (n) => r.engines.find((e) => e.engine === n);
-  const fr = find("fizh-relaxed"), fb = find("fizh-baseline"), bg = find("bergamot");
+  const fr = find("fizh"), fb = null, bg = find("bergamot");
 
   // --- Table 1: I1, three engines on one phone ---
   const names = [...new Set(r.engines.flatMap((e) => (e.cases || []).map((c) => c.name)))];
@@ -313,7 +303,7 @@ function render(r) {
     rows.push({ cells: [`${n} — p50`, cell(fr, n, "p50_ms"), cell(fb, n, "p50_ms"), cell(bg, n, "p50_ms")] });
     rows.push({ cells: [`${n} — steady p50`, cell(fr, n, "steady_p50_ms"), cell(fb, n, "steady_p50_ms"), cell(bg, n, "steady_p50_ms")] });
   }
-  table($("t-engines"), ["metric", "fizh relaxed", "fizh baseline", "bergamot"], rows);
+  table($("t-engines"), ["metric", "fizh", "—", "bergamot"], rows);
 
   // --- Table 2: distribution, and what is honestly a p99 ---
   const drows = [];
@@ -362,9 +352,7 @@ async function main() {
     `<dt>commit</dt><dd><code>${b.sha}</code></dd>` +
     `<dt>built</dt><dd>${b.built}</dd><dt>zig</dt><dd>${b.zig}</dd>`;
   if (b.repo) $("repo").href = b.repo;
-  $("probe").textContent = (await detectRelaxed())
-    ? "supported — both builds will be measured"
-    : "not supported — baseline only";
+  $("probe").textContent = "one artifact; the relaxed variant was removed (ADR 0025)";
 
   const box = $("models");
   for (const s of manifest.sets) {

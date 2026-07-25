@@ -1,7 +1,7 @@
 // host.mjs — the host side of SPEC §4 and §9, in about a hundred lines.
 //
 // It is a test, and it is documentation: this is exactly what the PWA's Web
-// Worker has to do. Feature-detect with the probe, pick an artifact, ask for
+// Worker has to do: load the artifact, ask for
 // the arena size, grow memory, initialize, load a direction per slot, translate.
 //
 //   node tools/host.mjs zig-out/wasm zig-out/selftest.fzm
@@ -31,14 +31,9 @@ const EXPORTS = [
 // abi.Lang: up to four lowercase ASCII bytes, big-endian, zero-padded left.
 const lang = (s) => [...s].reduce((a, c) => (a << 8) | c.charCodeAt(0), 0) >>> 0;
 
-/** SPEC §3: probe first, download second. */
+/** One artifact. The relaxed variant and its probe are gone (ADR 0025). */
 function pickArtifact(dir) {
-  const probe = readFileSync(join(dir, "fizh.probe.wasm"));
-  const relaxed = WebAssembly.validate(probe);
-  return {
-    relaxed,
-    path: join(dir, relaxed ? "fizh.relaxed.wasm" : "fizh.baseline.wasm"),
-  };
+  return { path: join(dir, "fizh.wasm") };
 }
 
 class Fizh {
@@ -132,8 +127,8 @@ async function main() {
   const dir = process.argv[2] ?? "zig-out/wasm";
   const model = process.argv[3] ?? "zig-out/selftest.fzm";
 
-  const { relaxed, path } = pickArtifact(dir);
-  console.log(`probe: relaxed_simd ${relaxed ? "supported" : "unsupported"} -> ${path}`);
+  const { path } = pickArtifact(dir);
+  console.log(`artifact: ${path}`);
 
   const { instance } = await WebAssembly.instantiate(readFileSync(path), {});
   const f = new Fizh(instance);

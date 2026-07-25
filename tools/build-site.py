@@ -63,7 +63,7 @@ def main(argv=None) -> int:
     for name in ("index.html", "style.css", "bench.js", "worker.js", "fizh.js",
                  "bergamot-worker.js"):
         shutil.copy(Path("web") / name, out / name)
-    for name in ("fizh.baseline.wasm", "fizh.relaxed.wasm", "fizh.probe.wasm"):
+    for name in ("fizh.wasm",):
         src = args.wasm / name
         if not src.exists():
             raise SystemExit(f"{src} missing — run `zig build wasm` first")
@@ -140,7 +140,7 @@ def main(argv=None) -> int:
         },
         "runtime": {
             name: {"bytes": (out / name).stat().st_size, "sha256": digest(out / name)}
-            for name in ("fizh.baseline.wasm", "fizh.relaxed.wasm", "fizh.probe.wasm")
+            for name in ("fizh.wasm",)
         },
         "sets": sets,
     }

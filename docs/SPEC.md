@@ -14,7 +14,7 @@ On 500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000 
 |---|---|
 | ABI prefix | `fizh_` |
 | Model artifact | `.fzm`, magic `FIZH`, format version 3 |
-| Wasm artifacts | `fizh.{baseline,relaxed}.wasm` |
+| Wasm artifact | `fizh.wasm` |
 | Language codes | `u32`, one to four lowercase ASCII bytes packed big-endian, zero-padded on the left: `"es"` is `0x0000_6573`. Codes the registry ships that are not ISO 639-1 get a fizh short form — `zh-Hans` → `zhs`, `zh-Hant` → `zht` (`convert.LANG_SHORT`). This was `u16`, which is a convention this project invented and the registry does not honour. |
 
 Lowercase everywhere. Not an acronym.
@@ -62,10 +62,8 @@ Note 0.16's tightened vector-index restrictions: `src/kernel/` uses `@Vector`, `
 
 | Artifact | CPU features |
 |---|---|
-| `fizh.baseline.wasm` | `+simd128,+bulk_memory,+sign_ext,+nontrapping_fptoint,+mutable_globals` |
-| `fizh.relaxed.wasm` | above, `+relaxed_simd` |
+| `fizh.wasm` | `+simd128,+bulk_memory,+sign_ext,+nontrapping_fptoint,+mutable_globals` |
 
-Host picks via probe-module feature detection.
 
 **Ship build is `ReleaseSafe`** — assertions stay on. Measure the `ReleaseFast` delta at M7; the number goes in an ADR either way.
 
@@ -196,7 +194,6 @@ src/
   kernel/
     ref/              scalar f32 oracle (I2)
     vector/
-    relaxed/
   graph/
     encoder.zig
     decoder.zig
@@ -265,7 +262,7 @@ Artifact ABI. Specified before any kernel is written.
 
 ## 8. Kernels
 
-Every op gets a `ref/` implementation first (I2); `vector/` and `relaxed/` are optimizations validated against it.
+Every op gets a `ref/` implementation first (I2); `vector/` is the optimization validated against it. There was a `relaxed/` for `+relaxed_simd`; it is gone (ADR 0025) — the artifact was byte-identical, `f32x4.relaxed_madd` was never emitted, and the integer dot the variant existed for is unreachable from Zig source.
 
 `vector/` was called `simd128/` until an audit counted what was actually in it: 245 lines of `@Vector`, `@shuffle`, `@select` and `@reduce`, with no wasm builtins, no inline assembly and no target branches. The only target-specific code in the whole kernel tree is three lines of feature detection in `backend.zig` — 867 of 870 lines are target-neutral. The old name encoded a constraint that was never real (ADR 0023).
 
@@ -378,7 +375,7 @@ The asymmetry is what makes it worth a rule. A false "this language is hard" cos
 | Tier | What | Gate |
 |---|---|---|
 | T0 | Per-op golden vectors from `tools/reference.py`, checked in | every commit |
-| T1 | Differential: `ref/` vs `vector/` vs `relaxed/`, max-abs-error per tensor | every commit |
+| T1 | Differential: `ref/` vs `vector/`, max-abs-error per tensor | every commit |
 | T2 | Full-model differential against the Python oracle, error profile per layer | every commit |
 | T3 | Fuzz (0.16 integrated fuzzer) | nightly |
 | T4 | End-to-end quality, chrF++ | per artifact |
@@ -398,7 +395,7 @@ The asymmetry is what makes it worth a rule. A false "this language is hard" cos
 
 Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded, Chrome stable. Pin one physical unit.
 
-**T5 has run.** The budgets below are mobile measurements, not desktop proxies. The first run was an 8-core armv81 Android 10 device, 8 GB, Chrome 150, on `es→en` with the relaxed build.
+**T5 has run.** The budgets below are mobile measurements, not desktop proxies. The first run was an 8-core armv81 Android 10 device, 8 GB, Chrome 150, on `es→en`. (It used the then-current relaxed artifact, which has since been shown byte-identical to the one that ships — ADR 0025 — so the numbers stand.)
 
 Work order 5 retightened this table to ~1.5× *desktop* measurements. That was a mistake with a specific cost: a desktop is not a basis for a mobile budget, and the retightened paragraph row failed on the phone at 287.7 ms against 100 ms — a false failure produced by the budget, not by the runtime. The numbers below return to the mobile-targeted scale the table originally had, which the device says was closer to right.
 
@@ -439,7 +436,7 @@ p50 and p99 are separate budgets, never a mean. p99 is a long message on the slo
 | M4 | Encoder matching the oracle within epsilon. |
 | M5 | Decoder (SSRU), cross-attention KV, shortlist, greedy decode. First end-to-end translation, one direction. |
 | M6 | `simd128/` int8 path. |
-| M7 | `relaxed/` variant, host feature detection, `ReleaseFast` measurement. |
+| M7 | `relaxed/` variant, host feature detection, `ReleaseFast` measurement. **Reverted** in M11: the variant bought nothing and the feature was a pessimization (ADR 0025). |
 | M8 | Routing + pivot. Perf harness, chat-register eval, §14 enforcement. |
 
 M3 before M4 is not negotiable. Correct first, with the oracle in place before there is anything to optimize.
