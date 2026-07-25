@@ -38,6 +38,11 @@ const CONFIG = [
   "quiet-translation: true",
   "gemm-precision: int8shiftAlphaAll",
   "alignment: soft",
+  // bergamot-translator only builds a shortlist generator when this key is
+  // present and non-empty -- the AlignedMemory passed to TranslationModel is
+  // ignored without it. Omitting it silently ran the reference at full-vocab
+  // projection, which is not what Firefox ships. ADR 0018.
+  "shortlist:\n    - dummy\n    - false",
 ].join("\n");
 
 function findOne(dir, pattern) {

@@ -23,13 +23,41 @@ Real Mozilla Bergamot models, real translation, through the shipped wasm.
 | es→en | `Hola, ¿qué tal?` → `Hey, how are you?` |
 | en→de | `Good morning, how are you?` → `Guten Morgen, wie geht es dir?` |
 | es→de, pivoted | `Buenos días, ¿cómo estás?` → `Guten Morgen, wie geht es dir?` |
-| chrF++, chat corpus | **42.51** |
-| warm p50, 12 tokens | **15.2 ms** native, **22 ms** in wasm (budget 80) |
-| warm p99, 120 tokens | **158 ms** (budget 800) |
-| cold start | **6.4 ms** (budget 300) |
-| slot, per direction | **19.01 MB** (budget 20) |
-| shared scratch | **6.74 MB** (budget 16) |
-| `fizh.baseline.wasm` | **27 KB gzipped**, 0 imports, 8 exports (budget 200 KB) |
+| chrF++, chat corpus | **46.73** (bergamot-translator: 45.86) |
+| warm p50, 12 tokens | **15.6 ms** (budget 22) |
+| warm p99, 120 tokens | **134 ms** (budget 200) |
+| warm p50, 8-sentence paragraph | **66 ms** (budget 100) |
+| cold start | **6.5 ms** (budget 10) |
+| slot, per direction | **19.23 MB** (budget 20) |
+| shared scratch | **6.77 MB** (budget 10) |
+| `fizh.baseline.wasm` | **32 KB gzipped**, 0 imports, 8 exports (budget 200 KB) |
+
+Budgets are SPEC §14 as retightened to ~1.5x measured — the originals were
+sized for a 600M-parameter model and left 4-45x of headroom, which cannot catch
+a 3x regression. Every number is a desktop proxy; see the last section.
+
+### Against the reference implementation
+
+500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000
+resamples. Deltas against `bergamot-translator` on identical input, never
+absolute scores:
+
+| direction | delta | 95% CI | |
+|---|---|---|---|
+| es→en | −0.08 | [−0.37, +0.20] | indistinguishable |
+| en→de | −0.33 | [−0.74, +0.03] | indistinguishable |
+| es→de, end to end | −0.23 | [−0.57, +0.10] | indistinguishable |
+
+Every interval covers zero. 46% of segments are byte-identical to the
+reference; the rest diverge at a per-token hazard of ~0.025, flat across
+position, which is what two int8 implementations rounding differently under
+greedy decode look like.
+
+Getting there took finding a real bug: fizh seeded the decoder with
+`emb(</s>)` where Marian zero-fills, which got roughly half of all first
+tokens wrong and cost 1.5 chrF++ on en→de. ADR 0015 has the method — teacher
+forcing, which is what separates a defect at position 0 from its own blast
+radius.
 
 Every SPEC §14 budget met, on the real thing.
 
@@ -107,13 +135,17 @@ can be wrong.*
 
 - **`¿` and `¡` are not in Bergamot's `es-en` vocabulary**, so they tokenize to
   `<unk>`. That is Bergamot's behaviour too, not a fizh bug.
-- **SentencePiece's `nmt_nfkc` normalization is not implemented** — only the
-  structural preprocessing (ADR 0004). Worth measuring on FLORES.
 - **No FLORES corpus is vendored** (CC-BY-SA); `tools/eval/corpora/README.md`
   has the three lines that build one. Only the chat register ships.
 - **T5 has never run on the reference device.** SPEC §14 pins a 2022-class
   mid-tier Android; every number above is a desktop, which proves less than it
   looks like.
-- **A first-token artifact** shows up occasionally (`of the meeting has been
-  postponed…`). Recorded in `test/real/golden_translations.tsv` rather than
-  hidden; worth chasing against bergamot-translator's own output.
+- **The shortlist costs en→de about 0.27 chrF++** against full-vocabulary
+  projection, which is most of the remaining gap. Not the size cap and not the
+  frequent-word set — the per-source-token candidate lists (ADR 0018).
+- **The reference engine was not running with a shortlist enabled**, so the
+  deltas above compare fizh-with-shortlist against bergamot-at-full-vocab.
+  Conservative rather than wrong, but not the comparison claimed. ADR 0018.
+- **The shipped `.fzm` is 19.23 MB against a 20 MB budget.** The `nmt_nfkc`
+  table is 237 KB of that and is the first thing to drop if a future artifact
+  needs the headroom (ADR 0017).
