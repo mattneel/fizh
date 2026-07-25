@@ -338,6 +338,16 @@ Enforced in CI where mechanically checkable.
 
 ---
 
+### 12.11 A per-language quality claim requires ruling out per-language tooling failure, in writing
+
+Before recording that fizh is worse at a language, name the tooling that is per-language and say how each was excluded. At minimum: which registry version was selected and why, which vocabulary file was used, whether the shortlist covers the reference's tokens, and whether the tokenizer round-trips.
+
+This is a rule rather than a habit because the project keeps producing the same wrong sentence. Of the seven findings in the ADR 0019 sweep, five were tooling failures presenting as language properties — the worst being a fetcher that selected pre-release models for 21 of 105 pairs, which made "fizh is bad at Czech" look like a measurement when the truth was "we downloaded the wrong file". It is the same shape as the latin-1 vocabulary (ADR 0009), the hardcoded `</s>` (ADR 0010), and the synthetic decoder (ADR 0008): a defect in what surrounds the model, wearing the model's face.
+
+The asymmetry is what makes it worth a rule. A false "this language is hard" costs nothing visible and is never revisited; a false "our tooling is wrong" gets found in an afternoon. Default to the second.
+
+---
+
 ## 13. Testing
 
 | Tier | What | Gate |
