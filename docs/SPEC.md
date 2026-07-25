@@ -395,6 +395,8 @@ The asymmetry is what makes it worth a rule. A false "this language is hard" cos
 
 Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded, Chrome stable. Pin one physical unit.
 
+**Build mode:** the ship build is `ReleaseSafe`, and the two loop interiors that dominate it — `qgemmTile` and `dotI8` — set `@setRuntimeSafety(false)`. That is worth **2.02x** (109.3 ms → 54.2 at 164 source tokens, against 48.2 for a whole-program `ReleaseFast`), and it leaves the load path and every other function checked. Check once at the boundary, not once per element (ADR 0026).
+
 **T5 has run.** The budgets below are mobile measurements, not desktop proxies. The first run was an 8-core armv81 Android 10 device, 8 GB, Chrome 150, on `es→en`. (It used the then-current relaxed artifact, which has since been shown byte-identical to the one that ships — ADR 0025 — so the numbers stand.)
 
 Work order 5 retightened this table to ~1.5× *desktop* measurements. That was a mistake with a specific cost: a desktop is not a basis for a mobile budget, and the retightened paragraph row failed on the phone at 287.7 ms against 100 ms — a false failure produced by the budget, not by the runtime. The numbers below return to the mobile-targeted scale the table originally had, which the device says was closer to right.

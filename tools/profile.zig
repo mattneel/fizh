@@ -102,8 +102,9 @@ pub fn main(init: std.process.Init) !void {
     const out_buf = try gpa.alloc(u8, 8192);
     defer gpa.free(out_buf);
 
-    try out.print("{s}\n  arena {d:.1} MiB, {s} backend\n\n", .{
+    try out.print("{s}\n  arena {d:.1} MiB, {s} backend, tool={s} runtime={s}\n\n", .{
         path, @as(f64, @floatFromInt(arena_bytes)) / (1 << 20), fizh.kernel.active.name,
+        @tagName(@import("builtin").mode), @tagName(fizh.buildMode()),
     });
 
     for ([_]u32{ 6, 12, 24, 48, 96, 120 }) |words| {

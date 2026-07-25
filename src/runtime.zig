@@ -18,6 +18,12 @@ const arena_mod = arena;
 pub const encoder = @import("graph/encoder.zig");
 pub const profile = @import("graph/profile.zig");
 
+/// The optimize mode *this module* was compiled with. A benchmark that reports
+/// the tool's mode instead of the runtime's is reporting the wrong number.
+pub fn buildMode() std.builtin.OptimizeMode {
+    return @import("builtin").mode;
+}
+
 const pass = @import("graph/pass.zig");
 const route = @import("route.zig");
 const ssplit = @import("tok/ssplit.zig");

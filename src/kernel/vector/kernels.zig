@@ -135,6 +135,20 @@ fn qgemmTile(
     k: u32,
     n: u32,
 ) void {
+    // Safety off for the interior, and only the interior.
+    //
+    // The entry points above assert every bound this loop relies on -- slice
+    // lengths, strides, scale-array sizes -- and those asserts run checked.
+    // What is disabled here is the *implicit* per-index bounds check inside a
+    // loop that has already been proven in range, which is what SPEC §11's
+    // "format.zig is the validation boundary" means in practice: check once at
+    // the boundary, not once per element.
+    //
+    // It is worth 2.1x. Native ReleaseSafe at 164 source tokens goes from
+    // 109.3 ms to 53.2, against 48.2 for a whole-program ReleaseFast build --
+    // so this recovers almost all of the optimized-build speed while leaving
+    // every other function, and the entire load path, checked. ADR 0026.
+    @setRuntimeSafety(false);
     var rows: [tile][]const i8 = undefined;
     inline for (0..tile) |r| rows[r] = a[(row + r) * a_stride ..][0..k];
 
@@ -201,6 +215,20 @@ pub fn qgemv(
 /// 16129`, so the `i16` multiply cannot overflow; the widening to `i32` before
 /// accumulation is what keeps the running sum exact past 132 terms.
 fn dotI8(a: []const i8, b: []const i8) i32 {
+    // Safety off for the interior, and only the interior.
+    //
+    // The entry points above assert every bound this loop relies on -- slice
+    // lengths, strides, scale-array sizes -- and those asserts run checked.
+    // What is disabled here is the *implicit* per-index bounds check inside a
+    // loop that has already been proven in range, which is what SPEC §11's
+    // "format.zig is the validation boundary" means in practice: check once at
+    // the boundary, not once per element.
+    //
+    // It is worth 2.1x. Native ReleaseSafe at 164 source tokens goes from
+    // 109.3 ms to 53.2, against 48.2 for a whole-program ReleaseFast build --
+    // so this recovers almost all of the optimized-build speed while leaving
+    // every other function, and the entire load path, checked. ADR 0026.
+    @setRuntimeSafety(false);
     assert(a.len == b.len);
 
     var acc: I32x = @splat(0);

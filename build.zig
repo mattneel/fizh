@@ -35,6 +35,11 @@ pub fn build(b: *std.Build) void {
     // import it could not satisfy (I2). See src/graph/profile.zig.
     const profile_enabled = b.option(bool, "profile",
         "Compile in per-phase timers (native only)") orelse false;
+    // `standardOptimizeOption` with a preferred mode swallows `--release=fast`,
+    // so the profiler gets its own explicit knob. Comparing the shipped mode
+    // against ReleaseFast is the whole point of the tool.
+    const profile_mode_opt = b.option(std.builtin.OptimizeMode, "profile-mode",
+        "Optimize mode for `zig build profile`");
     const opts = b.addOptions();
     opts.addOption(bool, "profile", profile_enabled);
     const build_options = opts.createModule();
@@ -202,6 +207,7 @@ pub fn build(b: *std.Build) void {
 
     if (!have_real) run_bench.step.dependOn(&build_bench_model.step);
 
+    const profile_mode = profile_mode_opt orelse optimize;
     const profiler = b.addExecutable(.{
         .name = "profile",
         .root_module = b.createModule(.{
@@ -211,12 +217,12 @@ pub fn build(b: *std.Build) void {
                     .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
-                    .optimize = optimize,
+                    .optimize = profile_mode,
                 }) },
             },
             .root_source_file = b.path("tools/profile.zig"),
             .target = native_target,
-            .optimize = optimize,
+            .optimize = profile_mode,
         }),
     });
     const run_profiler = b.addRunArtifact(profiler);
