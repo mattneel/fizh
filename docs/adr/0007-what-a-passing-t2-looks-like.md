@@ -1,6 +1,6 @@
 # ADR 0007 — What a passing T2 looks like
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M4/M5
 

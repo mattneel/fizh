@@ -1,6 +1,6 @@
 # ADR 0002 — Regions and files beyond the SPEC tables
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M0
 

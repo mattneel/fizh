@@ -1,6 +1,6 @@
 # ADR 0008 — The decoder is an SSRU, not self-attention
 
-Status: accepted
+Status: decided
 Date: 2026-07-25
 Milestone: M5 (rework)
 Supersedes: SPEC §8's `attn_decode` row, SPEC §4.2's `self_kv` region

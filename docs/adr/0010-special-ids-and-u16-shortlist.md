@@ -1,6 +1,6 @@
 # ADR 0010 — Special ids come from the vocabulary; shortlist ids are `u16`
 
-Status: accepted
+Status: decided
 Date: 2026-07-25
 Milestone: M2/M8
 

@@ -1,6 +1,6 @@
 # ADR 0006 — What relaxed SIMD is for, and the ReleaseFast number
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M7
 

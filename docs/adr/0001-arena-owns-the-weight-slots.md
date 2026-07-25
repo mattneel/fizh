@@ -1,6 +1,6 @@
 # ADR 0001 — The arena owns the weight slots
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M0
 

@@ -1,6 +1,6 @@
 # ADR 0004 — Implicit trie, and the tokenizer's artifact conventions
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M1
 

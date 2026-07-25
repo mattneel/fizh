@@ -1,6 +1,6 @@
 # ADR 0003 — fizh brings its own transcendentals
 
-Status: accepted
+Status: decided
 Date: 2026-07-24
 Milestone: M2/M3
 

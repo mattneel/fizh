@@ -1,6 +1,6 @@
 # ADR 0009 — Marian's on-disk int8: not tiled, already transposed
 
-Status: accepted
+Status: decided
 Date: 2026-07-25
 Milestone: M2 (the task SPEC §6 set)
 Supersedes: the intgemm section of ADR 0005

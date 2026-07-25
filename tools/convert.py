@@ -45,7 +45,7 @@ import numpy as np
 import nonbreaking
 
 MAGIC = b"FIZH"
-VERSION = 1
+VERSION = 2
 ALIGN = 64
 HEADER_BYTES = 64
 DESC_BYTES = 56
@@ -105,6 +105,7 @@ class HParams:
     emb_scale: float
     norm_eps: float
     max_length_factor: float
+    act_quant: int = 0
 
     def pack(self) -> bytes:
         head_dim = self.d_model // self.n_heads
@@ -127,7 +128,7 @@ class HParams:
             self.ffn_act,
             self.prenorm,
             self.tied_embeddings,
-            0,
+            self.act_quant,
             self.emb_scale,
             self.norm_eps,
             self.max_length_factor,
@@ -344,6 +345,19 @@ def emit_vocab(art: Artifact, v: Vocab) -> None:
     for a, b in zip(order, order[1:]):
         if v.pieces[a] == v.pieces[b]:
             raise SystemExit(f"duplicate vocabulary piece {v.pieces[a]!r}")
+
+    # The pieces are matched against UTF-8 source text. Writing them in any
+    # other encoding means no accented word can ever match, and the symptom is
+    # a fluent-looking mistranslation rather than an error. One check, once.
+    for i, p in enumerate(v.pieces):
+        probe = p.replace(bytes([SPACE_MARKER]), "\u2581".encode("utf-8"))
+        try:
+            probe.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise SystemExit(
+                f"vocabulary piece {i} is not valid UTF-8 at byte offset "
+                f"{e.start} of {p!r}: {e.reason}"
+            )
 
     blob = b"".join(v.pieces)
     offsets = np.zeros(len(v) + 1, dtype=np.uint32)

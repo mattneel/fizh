@@ -1,6 +1,6 @@
 # ADR 0005 — What `tools/convert.py` can and cannot do yet
 
-Status: accepted
+Status: superseded
 Date: 2026-07-24
 Milestone: M2
 
