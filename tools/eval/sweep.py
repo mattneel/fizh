@@ -56,6 +56,11 @@ FLORES = {
     "sq": "als_Latn", "sr": "srp_Cyrl", "sv": "swe_Latn", "ta": "tam_Taml",
     "te": "tel_Telu", "th": "tha_Thai", "tr": "tur_Latn", "uk": "ukr_Cyrl",
     "vi": "vie_Latn", "zh-Hans": "zho_Hans", "zh-Hant": "zho_Hant",
+    # Pairs the GCS registry carries that Firefox's shipped set did not.
+    # `no` is Bokmal in FLORES terms; `hbs` (Serbo-Croatian) has no single
+    # FLORES entry, so it scores against Bosnian, which is the closest the
+    # corpus offers and is noted rather than hidden.
+    "no": "nob_Latn", "hbs": "bos_Latn", "mr": "mar_Deva", "ur": "urd_Arab",
 }
 
 # A translation shorter than a third of its source, or three times longer, is

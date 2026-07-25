@@ -163,7 +163,11 @@ pub fn langBytes(l: Lang, buf: *[max_lang_len]u8) []const u8 {
 /// fits in `u32` without a single overflow check in the hot path.
 pub const limits = struct {
     pub const models: u32 = 8;
-    pub const model_bytes: u32 = 64 << 20;
+    /// A ceiling for the overflow proof, not a budget — §14 budgets weights
+    /// separately. The largest artifact the registry selects is a 63 MiB
+    /// d=512 CJK model, and a host asks for repack headroom on top, so 64 MiB
+    /// here rejected models that fit their own budget.
+    pub const model_bytes: u32 = 128 << 20;
     pub const src_bytes: u32 = 1 << 20;
     pub const src_tokens: u32 = 4096;
     pub const tgt_tokens: u32 = 8192;
