@@ -31,13 +31,24 @@ const max_imports: u32 = 0;
 
 pub fn build(b: *std.Build) void {
     const native_target = b.standardTargetOptions(.{});
+
+    // Per-phase timers for one translation pass. Off by default and compiled
+    // out entirely, so the shipped wasm carries neither the timers nor a clock
+    // import it could not satisfy (I2). See src/graph/profile.zig.
+    const profile_enabled = b.option(bool, "profile",
+        "Compile in per-phase timers (native only)") orelse false;
+    const opts = b.addOptions();
+    opts.addOption(bool, "profile", profile_enabled);
+    const build_options = opts.createModule();
+    const opt_import: []const std.Build.Module.Import =
+        &.{.{ .name = "build_options", .module = build_options }};
     // SPEC §3: the ship build is ReleaseSafe. Assertions stay on.
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
 
     // ---- wasm artifacts ---------------------------------------------------
 
-    const baseline = addWasm(b, "fizh.baseline", &baseline_features);
-    const relaxed = addWasm(b, "fizh.relaxed", &relaxed_features);
+    const baseline = addWasm(b, "fizh.baseline", &baseline_features, opt_import);
+    const relaxed = addWasm(b, "fizh.relaxed", &relaxed_features, opt_import);
 
     const install_baseline = b.addInstallArtifact(baseline, .{
         .dest_dir = .{ .override = .{ .custom = "wasm" } },
@@ -72,6 +83,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test.zig"),
         .target = native_target,
         .optimize = optimize,
+        .imports = opt_import,
     });
     const tests = b.addTest(.{ .root_module = test_mod });
     const run_tests = b.addRunArtifact(tests);
@@ -141,6 +153,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{
                 .name = "fizh",
                 .module = b.createModule(.{
+                    .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
                     .optimize = .Debug,
@@ -180,6 +193,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{
                 .name = "fizh",
                 .module = b.createModule(.{
+                    .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
                     .optimize = .ReleaseSafe,
@@ -211,6 +225,29 @@ pub fn build(b: *std.Build) void {
 
     if (!have_real) run_bench.step.dependOn(&build_bench_model.step);
 
+    const profiler = b.addExecutable(.{
+        .name = "profile",
+        .root_module = b.createModule(.{
+            .imports = &.{
+                .{ .name = "build_options", .module = build_options },
+                .{ .name = "fizh", .module = b.createModule(.{
+                    .imports = opt_import,
+                    .root_source_file = b.path("src/runtime.zig"),
+                    .target = native_target,
+                    .optimize = optimize,
+                }) },
+            },
+            .root_source_file = b.path("tools/profile.zig"),
+            .target = native_target,
+            .optimize = optimize,
+        }),
+    });
+    const run_profiler = b.addRunArtifact(profiler);
+    if (b.args) |extra| run_profiler.addArgs(extra);
+    run_profiler.has_side_effects = true;
+    const profile_step = b.step("profile", "Per-phase timings for one pass (needs -Dprofile)");
+    profile_step.dependOn(&run_profiler.step);
+
     const bench_step = b.step("bench", if (have_real)
         "SPEC §14 budgets against a real Bergamot artifact"
     else
@@ -228,6 +265,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{
                 .name = "fizh",
                 .module = b.createModule(.{
+                    .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
                     .optimize = .ReleaseFast,
@@ -254,6 +292,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{
                 .name = "fizh",
                 .module = b.createModule(.{
+                    .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
                     .optimize = .ReleaseSafe,
@@ -310,6 +349,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{
                 .name = "fizh",
                 .module = b.createModule(.{
+                    .imports = opt_import,
                     .root_source_file = b.path("src/runtime.zig"),
                     .target = native_target,
                     .optimize = .ReleaseSafe,
@@ -398,8 +438,10 @@ fn addWasm(
     b: *std.Build,
     name: []const u8,
     features: []const std.Target.wasm.Feature,
+    imports: []const std.Build.Module.Import,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
+        .imports = imports,
         .root_source_file = b.path("src/root.zig"),
         .target = wasmTarget(b, features),
         // SPEC §3. The ReleaseFast delta gets measured at M7; until then the

@@ -15,6 +15,7 @@ const layout = @import("../model/layout.zig");
 
 const attention = @import("attention.zig");
 const pass = @import("pass.zig");
+const profile = @import("profile.zig");
 const shortlist = @import("shortlist.zig");
 
 /// Scratch vector slots, named so a reader does not have to count.
@@ -32,7 +33,9 @@ const slot_gate: u32 = 8;
 /// terminating end-of-sequence when there is one.
 pub fn run(ctx: *pass.Ctx) u32 {
     assert(ctx.src_len > 0);
+    const t_sl = profile.start();
     shortlist.build(ctx);
+    profile.stop(.shortlist, t_sl);
 
     const limit = stepLimit(ctx);
     assert(limit > 0);

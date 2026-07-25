@@ -60,6 +60,11 @@ async function bytes(url, what) {
   return all;
 }
 
+async function sha256(bytes) {
+  const d = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+
 function aligned(view, alignment) {
   const mem = new M.AlignedMemory(view.byteLength, alignment);
   mem.getByteArrayView().set(new Int8Array(view.buffer, view.byteOffset, view.byteLength));
@@ -112,6 +117,14 @@ const handlers = {
     const build = performance.now() - t1;
 
     return {
+      // The artifact has to travel with the number. The model changed size
+      // between the phone run and the desktop one, and a result that does not
+      // say which bytes it used cannot be compared to either.
+      models: [{
+        pair: m.pair,
+        bytes: modelBytes.length,
+        sha256: await sha256(modelBytes),
+      }],
       // Reported separately: instantiating 5 MB of engine is a different cost
       // from building a model out of already-downloaded bytes, and fizh's
       // "cold start" is only the second kind.

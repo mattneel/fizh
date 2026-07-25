@@ -25,44 +25,29 @@ const simd = @import("../vector/kernels.zig");
 pub const name = "relaxed";
 pub const Act = ref.Act;
 
-const flanes: usize = 4;
-const F32x = @Vector(flanes, f32);
+// `dot` and `axpy` used `@mulAdd` here, on the premise that it lowers to
+// `f32x4.relaxed_madd` under `+relaxed_simd`. **It does not, and the premise
+// was never checked against the emitted bytes.**
+//
+// Scanning both shipped artifacts for the relaxed opcode range (0x100..0x115)
+// finds *zero* occurrences in either, with `+relaxed_simd` enabled. What LLVM
+// emits instead is an expansion — the relaxed binary carries 76 more of one
+// f32 opcode and 21 more of another than the baseline — because `@mulAdd` is a
+// *correctly rounded* fused multiply-add, and without a hardware instruction to
+// lower to it must be emulated rather than relaxed into a multiply and an add.
+//
+// So the relaxed build was paying for a software FMA to avoid a multiply and an
+// add. On the desktop three-engine run it was 5% slower on a short message and
+// 24% slower on a long one, scaling with per-token work exactly as a kernel
+// regression should. It also meant the artifact-selection logic was choosing
+// the slower binary wherever relaxed SIMD is supported.
+//
+// Until the opcode is actually emitted, every path here is the vector one.
+// ADR 0024.
+pub const dot = simd.dot;
+pub const axpy = simd.axpy;
 
-/// `@mulAdd` on a `@Vector` lowers to `f32x4.relaxed_madd` under
-/// `+relaxed_simd`. On a target without it, LLVM expands to a multiply and an
-/// add rather than calling `fmaf`, so no module import appears — `zig build
-/// check` is what keeps that claim true.
-pub fn dot(a: []const f32, b: []const f32) f32 {
-    assert(a.len == b.len);
-    assert(a.len > 0);
-
-    var acc: F32x = @splat(0);
-    var i: usize = 0;
-    while (i + flanes <= a.len) : (i += flanes) {
-        const av: F32x = a[i..][0..flanes].*;
-        const bv: F32x = b[i..][0..flanes].*;
-        acc = @mulAdd(F32x, av, bv, acc);
-    }
-    var tail: f32 = 0;
-    while (i < a.len) : (i += 1) tail += a[i] * b[i];
-    return (acc[0] + acc[1]) + (acc[2] + acc[3]) + tail;
-}
-
-pub fn axpy(dst: []f32, src: []const f32, s: f32) void {
-    assert(dst.len == src.len);
-    assert(std.math.isFinite(s));
-
-    const vs: F32x = @splat(s);
-    var i: usize = 0;
-    while (i + flanes <= dst.len) : (i += flanes) {
-        const d: F32x = dst[i..][0..flanes].*;
-        const v: F32x = src[i..][0..flanes].*;
-        dst[i..][0..flanes].* = @mulAdd(F32x, v, vs, d);
-    }
-    while (i < dst.len) : (i += 1) dst[i] += src[i] * s;
-}
-
-// The rest is SIMD128's, including every integer path.
+// The rest is the vector backend's, including every integer path.
 pub const qgemm = simd.qgemm;
 pub const qgemv = simd.qgemv;
 pub const quantizeRows = simd.quantizeRows;

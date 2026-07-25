@@ -165,6 +165,7 @@ async function runBergamot(set) {
     model_build_ms: round(info.model_build_ms),
     cold_start_ms: round(info.cold_start_ms),
     peak_heap_bytes: Math.max(info.heap_bytes || 0, ...cases.map((c) => c.heap_bytes || 0)),
+    models: info.models,
     cases: cases.map(clean),
   };
 }
@@ -291,6 +292,13 @@ function render(r) {
   };
   const rows = [{
     cells: ["cold start", ms(fr?.cold_start_ms), ms(fb?.cold_start_ms), ms(bg?.cold_start_ms)],
+  }, {
+    // Peak heap is a real axis and fizh wins it by roughly 6x. On a phone it
+    // may be the axis that decides whether the thing runs at all.
+    cells: ["peak heap",
+      fr?.peak_heap_bytes ? `${(fr.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—",
+      fb?.peak_heap_bytes ? `${(fb.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—",
+      bg?.peak_heap_bytes ? `${(bg.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—"],
   }, {
     cells: ["engine size",
       fr ? `${(fr.wasm_bytes / 1024).toFixed(0)} KiB` : "—",

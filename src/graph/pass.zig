@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const format = @import("../model/format.zig");
 const layout = @import("../model/layout.zig");
 const charsmap_mod = @import("../tok/charsmap.zig");
+const profile = @import("profile.zig");
 const ssplit = @import("../tok/ssplit.zig");
 const trie = @import("../tok/trie.zig");
 const unigram = @import("../tok/unigram.zig");
@@ -236,6 +237,8 @@ fn wrapAt(text: []const u8, max_tokens: u32) usize {
 
 /// One sentence: tokenize, encode, greedy decode, detokenize.
 fn one(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
+    profile.calls += 1;
+    var t = profile.start();
     const v = ctx.vocab();
     // SentencePiece normalizes before it segments: `nmt_nfkc` first, then the
     // whitespace rules and the word-boundary marker. Doing it the other way
@@ -243,6 +246,8 @@ fn one(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
     const raw = ctx.charsmap().normalize(in, ctx.tok_raw) catch return error.SrcTooLong;
     if (raw + 1 > ctx.tok_norm.len) return error.SrcTooLong;
     const n = unigram.normalize(ctx.tok_raw[0..raw], ctx.tok_norm);
+    profile.stop(.normalize, t);
+    t = profile.start();
     const params: unigram.Params = .{
         .unk_id = ctx.hp.unk_id,
         .eos_id = ctx.hp.eos_id,
@@ -254,14 +259,21 @@ fn one(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
     };
     assert(ctx.src_len > 0);
     assert(ctx.src_len <= ctx.max_src_tokens);
+    profile.stop(.tokenize, t);
 
+    t = profile.start();
     encoder.run(ctx);
+    profile.stop(.encoder, t);
     // The recurrence starts from zero for every sentence; a leftover cell would
     // make this sentence depend on the last one.
     @memset(ctx.ssru_state, 0);
+    t = profile.start();
     ctx.tgt_len = decoder.run(ctx);
+    profile.stop(.decoder, t);
     assert(ctx.tgt_len <= ctx.max_tgt_tokens);
 
+    t = profile.start();
+    defer profile.stop(.detokenize, t);
     return unigram.decode(v, ctx.tgt_ids[0..ctx.tgt_len], out) catch |e| switch (e) {
         error.OutTooSmall => error.OutTooSmall,
         error.TooManyTokens => error.OutTooSmall,

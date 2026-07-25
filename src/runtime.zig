@@ -16,6 +16,7 @@ pub const kernel = @import("kernel/backend.zig");
 pub const arena = @import("arena.zig");
 const arena_mod = arena;
 pub const encoder = @import("graph/encoder.zig");
+pub const profile = @import("graph/profile.zig");
 
 const pass = @import("graph/pass.zig");
 const route = @import("route.zig");
