@@ -48,21 +48,41 @@ async function sha256(bytes) {
 /** Percentiles, never a mean (SPEC §14). */
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))];
 
+/** A p99 needs enough samples for the 99th percentile to be an estimate rather
+ *  than a synonym for the worst one. Below this it is reported as `max`,
+ *  labelled as max, and `p99_ms` is null. */
+const P99_MIN_RUNS = 300;
+
 function timeMany(text, from, to, runs) {
   const samples = [];
   let last = null;
+  const wall0 = performance.now();
   for (let i = 0; i < runs; i++) {
     const t0 = performance.now();
     last = translate(ctx, text, from, to);
     samples.push(performance.now() - t0);
-    if (last.error) return { error: last.error, code: last.code };
+    if (last.error) return { error: last.error, code: last.code, runs: i + 1 };
   }
-  samples.sort((a, b) => a - b);
+  const wall = performance.now() - wall0;
+  const sorted = [...samples].sort((a, b) => a - b);
+
+  // Burst and steady state are different numbers on a heterogeneous phone: the
+  // scheduler starts on a big core and migrates, or DVFS ramps. Reporting one
+  // p50 over both hides which of the two any budget is describing.
+  const q = Math.max(1, runs >> 2);
+  const burst = [...samples.slice(0, q)].sort((a, b) => a - b);
+  const steady = [...samples.slice(runs >> 1)].sort((a, b) => a - b);
+
   return {
-    p50: pct(samples, 50),
-    p99: pct(samples, 99),
-    min: samples[0],
     runs,
+    wall_ms: wall,
+    min_ms: sorted[0],
+    p50_ms: pct(sorted, 50),
+    p90_ms: pct(sorted, 90),
+    p99_ms: runs >= P99_MIN_RUNS ? pct(sorted, 99) : null,
+    max_ms: sorted[sorted.length - 1],
+    burst_p50_ms: pct(burst, 50),
+    steady_p50_ms: pct(steady, 50),
     sample: last.text,
   };
 }
@@ -99,7 +119,12 @@ const handlers = {
     for (const c of cases) {
       // Warm and cold are reported separately and never blended (SPEC §14).
       for (let i = 0; i < warmup; i++) translate(ctx, c.text, c.from, c.to);
-      out.push({ name: c.name, ...timeMany(c.text, c.from, c.to, runs) });
+      const r = timeMany(c.text, c.from, c.to, runs);
+      // A paragraph's cost is per sentence; §14 budgeted a total without ever
+      // saying how many sentences were in it, which is why it could not be
+      // passed or failed.
+      if (c.sentences && r.p50_ms) r.per_sentence_ms = r.p50_ms / c.sentences;
+      out.push({ name: c.name, sentences: c.sentences ?? null, ...r });
     }
     return { cases: out, heap_bytes: ctx.f.memory.buffer.byteLength };
   },

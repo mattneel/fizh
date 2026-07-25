@@ -63,6 +63,11 @@ jobs:
             echo "::endgroup::"
           done < pairs.txt
 
+      # bergamot-translator, so the page can test I1 on the device instead of
+      # assuming it. ~5 MiB, not vendored.
+      - name: Fetch the reference engine
+        run: tools/eval/fetch-reference.sh
+
       - name: Assemble the site
         run: |
           python3 tools/build-site.py \

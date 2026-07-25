@@ -60,7 +60,8 @@ def main(argv=None) -> int:
         shutil.rmtree(out)
     (out / "models").mkdir(parents=True)
 
-    for name in ("index.html", "style.css", "bench.js", "worker.js", "fizh.js"):
+    for name in ("index.html", "style.css", "bench.js", "worker.js", "fizh.js",
+                 "bergamot-worker.js"):
         shutil.copy(Path("web") / name, out / name)
     for name in ("fizh.baseline.wasm", "fizh.relaxed.wasm", "fizh.probe.wasm"):
         src = args.wasm / name
@@ -68,7 +69,18 @@ def main(argv=None) -> int:
             raise SystemExit(f"{src} missing — run `zig build wasm` first")
         shutil.copy(src, out / name)
 
+    # bergamot-translator, so I1 can be tested on the device rather than
+    # assumed. Optional: without it the page still runs, and the three-engine
+    # table simply has no bergamot column.
+    ref = Path("tools/eval/reference")
+    berg_ok = (ref / "bergamot-translator-worker.wasm").exists()
+    if berg_ok:
+        (out / "bergamot").mkdir(parents=True, exist_ok=True)
+        for name in ("bergamot-translator-worker.js", "bergamot-translator-worker.wasm"):
+            shutil.copy(ref / name, out / "bergamot" / name)
+
     models = {}
+    raw_for = {}
     for src, tgt in BENCH:
         fzm = args.models / f"{src}{tgt}.fzm"
         if not fzm.exists():
@@ -81,25 +93,41 @@ def main(argv=None) -> int:
             "sha256": digest(fzm),
             **hparams(fzm),
         }
+        # The raw Marian bundle, for bergamot. Same bytes both engines read.
+        bundle = Path("zig-out/bergamot") / f"{src}{tgt}"
+        if berg_ok and bundle.is_dir():
+            picked = {}
+            for key, pat in (("model", "model.*.intgemm.alphas.bin"),
+                             ("vocab", "vocab.*.spm"),
+                             ("lex", "lex.*.s2t.bin")):
+                hit = next(iter(sorted(bundle.glob(pat))), None)
+                if hit:
+                    shutil.copy(hit, out / "bergamot" / hit.name)
+                    picked[key] = hit.name
+            if len(picked) == 3:
+                raw_for[(src, tgt)] = {"pair": f"{src}-{tgt}", **picked}
 
     # One set per shape SPEC §14 budgets separately. The pivot set is the
     # expensive one and the reason the page has to survive an OOM.
     sets = []
     if ("es", "en") in models:
         sets.append({
-            "id": "esen", "label": "es→en, tiny (d=256)",
+            "id": "esen", "label": "es→en, direct",
             "from": "es", "to": "en", "models": [models[("es", "en")]],
+            "bergamot": raw_for.get(("es", "en")),
         })
     if ("en", "ar") in models:
         sets.append({
-            "id": "enar", "label": "en→ar, wide (d=384)",
+            "id": "enar", "label": "en→ar, the wider architecture",
             "from": "en", "to": "ar", "models": [models[("en", "ar")]],
+            "bergamot": raw_for.get(("en", "ar")),
         })
     if ("es", "en") in models and ("en", "de") in models:
         sets.append({
             "id": "pivot", "label": "es→en + en→de, two slots resident (pivot)",
             "from": "es", "to": "en", "pivot": "de",
             "models": [models[("es", "en")], models[("en", "de")]],
+            "bergamot": raw_for.get(("es", "en")),
         })
 
     manifest = {

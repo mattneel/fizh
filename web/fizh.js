@@ -149,9 +149,22 @@ export async function boot(wasmBytes, blobs) {
   const base = f.reserve(arenaBytes);
   const handle = f.check(f.e.fizh_init(base, arenaBytes, cfgPtr, 64), "init");
 
+  // One staging buffer, reused for every slot.
+  //
+  // `fizh_model_load` repacks the blob into the slot, so between the host
+  // writing it and that call returning, the same weights exist twice. Writing
+  // each blob at a fresh offset makes the transient peak `arena + sum(blobs)`;
+  // reusing one buffer makes it `arena + max(blob)`. On the measured Android
+  // run that delta was 21.4 MB for a single 20 MB model, and a two-slot pivot
+  // of 33 MB artifacts would have carried 66 MB of it. SPEC §4.3.
+  //
+  // Freeing it afterwards is not possible: the host allocator here is a bump
+  // pointer into wasm memory, and wasm memory never shrinks. The buffer stays
+  // reserved and is reused by nothing else, which is why it is placed last.
+  const staging = f.reserve(Math.max(...blobs.map((b) => b.length)));
   for (const [slot, blob] of blobs.entries()) {
-    const at = f.write(blob);
-    f.check(f.e.fizh_model_load(handle, slot, at, blob.length), `load slot ${slot}`);
+    f.bytes().set(blob, staging);
+    f.check(f.e.fizh_model_load(handle, slot, staging, blob.length), `load slot ${slot}`);
   }
 
   // Source and destination are reserved once. A benchmark that reserves per

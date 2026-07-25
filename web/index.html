@@ -13,10 +13,11 @@
   <p class="sub">On-device neural machine translation in Zig, compiled to
   <code>wasm32-freestanding</code>. This page runs SPEC §13 T5: the §14 budgets
   on whatever device you opened it with.</p>
-  <p class="sub">Every number the project has published so far is a desktop
-  proxy. <strong>The premise (invariant I1) is that Mozilla's engine is
-  intgemm-based and x86-tuned while phones are ARM.</strong> The baseline /
-  relaxed-SIMD comparison below is that premise, measured.</p>
+  <p class="sub"><strong>Invariant I1</strong> says fizh exists because
+  Mozilla's engine is intgemm-based and x86-tuned while phones are ARM.
+  Testing that needs <em>bergamot itself, on this phone</em> — comparing fizh
+  against its own baseline build measures relaxed SIMD, which is a different
+  question. Both are below, in separate tables.</p>
   <dl class="build" id="build"></dl>
 </header>
 
@@ -30,13 +31,13 @@
       <div class="value" id="probe">detecting…</div>
     </div>
     <label class="toggle">
-      <input type="checkbox" id="force-baseline">
-      <span>Force baseline build</span>
+      <input type="checkbox" id="with-bergamot" checked>
+      <span>Also run bergamot (+5 MiB engine, +35 MiB bundle)</span>
     </label>
   </div>
   <p class="note">Detection instantiates a 92-byte probe module that uses one
-  relaxed instruction (SPEC §3, ADR 0006). The toggle exists so the same device
-  produces both numbers — that comparison has never been run on ARM.</p>
+  relaxed instruction (SPEC §3, ADR 0006). Both fizh builds are measured in one
+  run, so relaxed-vs-baseline comes off one device under one thermal state.</p>
 </section>
 
 <section>
@@ -53,8 +54,19 @@
 
 <section id="results-section" hidden>
   <h2>3. Results</h2>
-  <table id="results"></table>
+  <h3>I1 — three engines, one phone</h3>
+  <p class="note">The claim the project rests on. Cold start is part of it:
+  bergamot instantiates ~5 MiB of engine, fizh ~104 KiB.</p>
+  <table id="t-engines"></table>
+
+  <h3>Distribution</h3>
+  <p class="note">A p99 is only reported where the run count supports one
+  (300+). Below that the tail column says <code>max</code> and means it.
+  Burst is the first quarter of samples, steady the second half — on a
+  big.LITTLE phone those are different numbers and the gap is the scheduler.</p>
+  <table id="t-dist"></table>
   <p class="note" id="mem"></p>
+  <p class="note" id="fails"></p>
   <h3>Copyable result</h3>
   <p class="note">Paste this into an issue. It carries the build, the model
   hashes and the device, so the numbers are attributable.</p>
