@@ -19,7 +19,8 @@ export const EXPORTS = [
   "fizh_status_str",
 ];
 
-export const lang = (s) => (s.charCodeAt(0) << 8) | s.charCodeAt(1);
+export // abi.Lang: up to four lowercase ASCII bytes, big-endian, zero-padded left.
+const lang = (s) => [...s].reduce((a, c) => (a << 8) | c.charCodeAt(0), 0) >>> 0;
 
 /** SPEC §6's header, so the arena is sized from the artifact rather than from
  *  a guess. Firefox ships d_model 256 and 384; guessing rejects one of them. */
@@ -27,13 +28,13 @@ export function hparams(blob) {
   const v = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
   if (String.fromCharCode(...blob.subarray(0, 4)) !== "FIZH") throw new Error("not a .fzm");
   return {
-    d_model: v.getUint16(12, true),
-    ffn_dim: v.getUint16(14, true),
-    n_enc_layers: blob[16],
-    n_dec_layers: blob[17],
-    n_heads: blob[18],
-    vocab_size: v.getUint32(20, true),
-    max_pos: v.getUint16(24, true),
+    d_model: v.getUint16(16, true),
+    ffn_dim: v.getUint16(18, true),
+    n_enc_layers: blob[20],
+    n_dec_layers: blob[21],
+    n_heads: blob[22],
+    vocab_size: v.getUint32(24, true),
+    max_pos: v.getUint16(28, true),
   };
 }
 

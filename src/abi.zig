@@ -94,23 +94,66 @@ pub const Route = enum(i32) {
 
 // -- language codes ---------------------------------------------------------
 
-/// SPEC conventions: two ASCII bytes packed big-endian, `'e' << 8 | 's'` == "es".
-pub const Lang = u16;
+/// One to four lowercase ASCII bytes packed big-endian and left-padded with
+/// zeros: `"es"` is `0x0000_6573`, `"zhs"` is `0x007a_6873`.
+///
+/// This was `u16` — exactly two bytes — which is a convention this project
+/// invented and then found the registry does not honour. ISO 639-3 codes are
+/// three letters, and Firefox ships script-qualified pairs (`zh-Hans`,
+/// `zh-Hant`) that two bytes cannot express at all: `zh-Hans-en` was refused
+/// for that reason alone. Four bytes covers 639-1, 639-3, and fizh's
+/// short forms for the script-qualified cases (see `langShort` in
+/// `tools/bergamot.py`).
+pub const Lang = u32;
+
+pub const max_lang_len = 4;
 
 pub const lang_en: Lang = langFrom("en");
 
-pub fn langFrom(s: *const [2]u8) Lang {
-    return (@as(Lang, s[0]) << 8) | s[1];
+/// Comptime-friendly: takes any 1..4 byte string.
+pub fn langFrom(s: []const u8) Lang {
+    assert(s.len >= 1 and s.len <= max_lang_len);
+    var out: Lang = 0;
+    for (s) |c| out = (out << 8) | c;
+    return out;
 }
 
 pub fn langValid(l: Lang) bool {
-    const hi: u8 = @truncate(l >> 8);
-    const lo: u8 = @truncate(l);
-    return hi >= 'a' and hi <= 'z' and lo >= 'a' and lo <= 'z';
+    if (l == 0) return false;
+    var seen_end = false;
+    // Big-endian with zero padding: once a zero byte appears, every byte above
+    // it must be zero too, and every byte below must be a lowercase letter.
+    var i: u5 = 0;
+    while (i < max_lang_len) : (i += 1) {
+        const b: u8 = @truncate(l >> (@as(u5, 8) * (max_lang_len - 1 - i)));
+        if (b == 0) {
+            seen_end = i == 0 or !seen_end;
+            continue;
+        }
+        if (b < 'a' or b > 'z') return false;
+        // A zero between two letters is not padding, it is corruption.
+        if (i > 0) {
+            const prev: u8 = @truncate(l >> (@as(u5, 8) * (max_lang_len - i)));
+            if (prev == 0 and i > 1) {
+                const above: u8 = @truncate(l >> (@as(u5, 8) * (max_lang_len - i + 1)));
+                if (above != 0) return false;
+            }
+        }
+    }
+    return true;
 }
 
-pub fn langBytes(l: Lang) [2]u8 {
-    return .{ @truncate(l >> 8), @truncate(l) };
+/// The code as text, into `buf`. Returns the written slice.
+pub fn langBytes(l: Lang, buf: *[max_lang_len]u8) []const u8 {
+    var n: usize = 0;
+    var i: u5 = 0;
+    while (i < max_lang_len) : (i += 1) {
+        const b: u8 = @truncate(l >> (@as(u5, 8) * (max_lang_len - 1 - i)));
+        if (b == 0 and n == 0) continue;
+        buf[n] = b;
+        n += 1;
+    }
+    return buf[0..n];
 }
 
 // -- configuration ----------------------------------------------------------
@@ -215,9 +258,15 @@ test "status strings are total" {
 test "language codes round-trip" {
     try std.testing.expectEqual(@as(Lang, 'e' << 8 | 's'), langFrom("es"));
     try std.testing.expect(langValid(langFrom("de")));
+    try std.testing.expect(langValid(langFrom("zhs")));
+    try std.testing.expect(langValid(langFrom("nqo")));
     try std.testing.expect(!langValid(0));
-    try std.testing.expect(!langValid('E' << 8 | 'S'));
-    try std.testing.expectEqualSlices(u8, "en", &langBytes(lang_en));
+    try std.testing.expect(!langValid(langFrom("ES")));
+    // A zero between letters is corruption, not padding.
+    try std.testing.expect(!langValid(('a' << 24) | ('b' << 8) | 'c'));
+    var buf: [max_lang_len]u8 = undefined;
+    try std.testing.expectEqualSlices(u8, "en", langBytes(lang_en, &buf));
+    try std.testing.expectEqualSlices(u8, "zhs", langBytes(langFrom("zhs"), &buf));
 }
 
 test "config rejects junk without trapping" {

@@ -96,6 +96,8 @@ pub fn main(init: std.process.Init) !void {
 
     const inst = fizh.instanceForTest().?;
     const m = &inst.models[0];
+    var src_buf: [abi.max_lang_len]u8 = undefined;
+    var tgt_buf: [abi.max_lang_len]u8 = undefined;
     try out.print(
         \\{s}: loaded
         \\  {s} -> {s}
@@ -104,8 +106,8 @@ pub fn main(init: std.process.Init) !void {
         \\
     , .{
         args[1],
-        &abi.langBytes(m.src_lang),
-        &abi.langBytes(m.tgt_lang),
+        abi.langBytes(m.src_lang, &src_buf),
+        abi.langBytes(m.tgt_lang, &tgt_buf),
         m.hp.d_model,
         m.hp.ffn_dim,
         m.hp.n_enc_layers,

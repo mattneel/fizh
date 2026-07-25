@@ -8,14 +8,19 @@
 //!
 //! Layout, little-endian throughout (SPEC §6):
 //!
-//!     0   magic         [4]u8 "FIZH"
-//!     4   version       u32
-//!     8   src_lang      u16
-//!     10  tgt_lang      u16
-//!     12  hparams       [48]u8
-//!     60  tensor_count  u32
-//!     64  tensors       [tensor_count]TensorDesc, 56 bytes each
-//!     ..  payload       64-byte-aligned tensor bytes
+//!     0    magic         [4]u8 "FIZH"
+//!     4    version       u32
+//!     8    src_lang      u32
+//!     12   tgt_lang      u32
+//!     16   hparams       [48]u8
+//!     64   tensor_count  u32
+//!     68   reserved      [60]u8, zero
+//!     128  tensors       [tensor_count]TensorDesc, 56 bytes each
+//!     ..   payload       64-byte-aligned tensor bytes
+//!
+//! The header is 128 bytes rather than 64 because language codes went from two
+//! packed ASCII bytes to four (`abi.Lang`), which did not fit. The 60 reserved
+//! bytes exist so the next field does not cost another format version.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -29,13 +34,14 @@ const trie = @import("../tok/trie.zig");
 const tok_charsmap = @import("../tok/charsmap.zig");
 
 pub const magic = [4]u8{ 'F', 'I', 'Z', 'H' };
-/// 2 adds: `act_quant` in the header, per-matmul `*.alpha` tensors,
-/// `tok.nonbreaking`, and `sl.targets` narrowed to u16.
-pub const version: u32 = 2;
+/// 3 widens `src_lang`/`tgt_lang` to `u32` and the header to 128 bytes.
+/// 2 added: `act_quant` in the header, per-matmul `*.alpha` tensors,
+/// `tok.nonbreaking`, `sl.targets` narrowed to u16, and `tok.charsmap`.
+pub const version: u32 = 3;
 
 /// SPEC §6: all offsets 64-byte aligned.
 pub const payload_alignment: u64 = 64;
-pub const header_bytes: u64 = 64;
+pub const header_bytes: u64 = 128;
 /// A ceiling so a corrupt `tensor_count` cannot make the table walk forever.
 pub const max_tensors: u32 = 4096;
 
@@ -374,7 +380,7 @@ pub fn peekHParams(blob: []const u8) ?HParams {
     if (readU32(blob, 4) != version) return null;
 
     var raw: [48]u8 align(@alignOf(HParams)) = undefined;
-    @memcpy(&raw, blob[12..60]);
+    @memcpy(&raw, blob[16..64]);
     return @bitCast(raw);
 }
 
@@ -383,19 +389,19 @@ fn parseHeader(blob: []const u8, cfg: abi.Config) LoadError!Header {
     if (!std.mem.eql(u8, blob[0..4], &magic)) return error.BadArtifact;
     if (readU32(blob, 4) != version) return error.BadVersion;
 
-    const src_lang = readU16(blob, 8);
-    const tgt_lang = readU16(blob, 10);
+    const src_lang = readU32(blob, 8);
+    const tgt_lang = readU32(blob, 12);
     if (!abi.langValid(src_lang) or !abi.langValid(tgt_lang)) return error.BadLang;
     if (src_lang == tgt_lang) return error.BadLang;
 
     var raw: [48]u8 align(@alignOf(HParams)) = undefined;
-    @memcpy(&raw, blob[12..60]);
+    @memcpy(&raw, blob[16..64]);
     const hp: HParams = @bitCast(raw);
     if (hp.validate(cfg)) |bad| {
         return if (bad == .model_too_large) error.ModelTooLarge else error.BadArtifact;
     }
 
-    const count = readU32(blob, 60);
+    const count = readU32(blob, 64);
     if (count == 0 or count > max_tensors) return error.BadArtifact;
     return .{ .src_lang = src_lang, .tgt_lang = tgt_lang, .hp = hp, .count = count };
 }
@@ -721,8 +727,10 @@ test "descriptor and hparams have the sizes SPEC §6 promises" {
     // §6 says the hparams block is 48 packed bytes; it must have no holes, or
     // `@bitCast` from the artifact would read undefined padding.
     try std.testing.expectEqual(@as(usize, 44), @offsetOf(HParams, "max_length_factor"));
-    // The header ends exactly where the tensor table begins.
-    try std.testing.expectEqual(@as(u64, 64), header_bytes);
+    // The header ends exactly where the tensor table begins, and stays a
+    // multiple of the payload alignment.
+    try std.testing.expectEqual(@as(u64, 128), header_bytes);
+    try std.testing.expectEqual(@as(u64, 0), header_bytes % payload_alignment);
 }
 
 test "positional encodings match the closed form" {

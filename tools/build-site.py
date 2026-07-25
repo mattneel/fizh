@@ -39,11 +39,11 @@ def digest(p: Path) -> str:
 
 
 def hparams(p: Path) -> dict:
-    b = p.read_bytes()[:32]
+    b = p.read_bytes()[:36]
     if b[:4] != b"FIZH":
         raise SystemExit(f"{p}: not a .fzm")
     u16 = lambda at: int.from_bytes(b[at:at + 2], "little")  # noqa: E731
-    return {"d_model": u16(12), "ffn_dim": u16(14), "n_enc": b[16], "n_dec": b[17]}
+    return {"d_model": u16(16), "ffn_dim": u16(18), "n_enc": b[20], "n_dec": b[21]}
 
 
 def main(argv=None) -> int:

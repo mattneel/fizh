@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from chrf import corpus_score  # noqa: E402
 import pins  # noqa: E402
+from convert import short_lang  # noqa: E402
 
 REGISTRY = ("https://firefox.settings.services.mozilla.com/v1/buckets/main"
             "/collections/translations-models/records")

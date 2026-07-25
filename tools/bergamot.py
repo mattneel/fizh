@@ -27,7 +27,7 @@ import numpy as np
 import marian
 import charsmap as charsmap_mod
 import nonbreaking
-from convert import Artifact, HParams, Vocab, emit_vocab, read_spm
+from convert import Artifact, HParams, Vocab, emit_vocab, read_spm, short_lang
 
 # Marian writes `x @ W`, so its matrices are [in][out]. SPEC §6 is [out][in].
 ATTN = (("q", "Wq", "bq"), ("k", "Wk", "bk"), ("v", "Wv", "bv"), ("o", "Wo", "bo"))
@@ -161,14 +161,12 @@ def convert(args) -> int:
     if len(vocab) != vocab_size:
         raise SystemExit(f"vocab has {len(vocab)} pieces, Wemb has {vocab_size} rows")
 
-    # SPEC §9 packs a language into two ASCII letters, so the registry's
-    # script-qualified codes -- zh-Hans, zh-Hant -- have nowhere to go. Refuse by
-    # that reason rather than asserting somewhere downstream. ADR 0019.
-    for who, code in (("--src", args.src), ("--tgt", args.tgt)):
-        if len(code) != 2 or not code.isascii() or not code.isalpha():
-            raise SystemExit(
-                f"{who} {code!r}: fizh encodes a language as two ASCII letters "
-                f"(SPEC §9); script-qualified codes cannot be represented")
+    # SPEC §9 packs a language into up to four lowercase ASCII bytes. The
+    # registry's script-qualified codes get a fizh short form rather than a
+    # longer field -- see convert.LANG_SHORT. Raises with the reason if a code
+    # has none.
+    for code in (args.src, args.tgt):
+        short_lang(code)
 
     print(f"  {args.src}->{args.tgt}  d={d_model} ffn={ffn_dim} enc={n_enc} "
           f"dec={n_dec} heads={heads} vocab={vocab_size} cell={dec_cell} "

@@ -45,9 +45,9 @@ import numpy as np
 import nonbreaking
 
 MAGIC = b"FIZH"
-VERSION = 2
+VERSION = 3
 ALIGN = 64
-HEADER_BYTES = 64
+HEADER_BYTES = 128
 DESC_BYTES = 56
 
 DT_F32, DT_I8, DT_U32, DT_U8, DT_U16 = 0, 1, 2, 3, 4
@@ -139,7 +139,8 @@ class HParams:
 
 class Artifact:
     def __init__(self, src_lang: str, tgt_lang: str, hp: HParams):
-        assert len(src_lang) == 2 and len(tgt_lang) == 2
+        # Validated by short_lang, which is where the mapping lives.
+        short_lang(src_lang), short_lang(tgt_lang)
         assert src_lang != tgt_lang
         self.src_lang = src_lang
         self.tgt_lang = tgt_lang
@@ -220,10 +221,10 @@ class Artifact:
 
         body[0:4] = MAGIC
         struct.pack_into("<I", body, 4, VERSION)
-        struct.pack_into("<H", body, 8, pack_lang(self.src_lang))
-        struct.pack_into("<H", body, 10, pack_lang(self.tgt_lang))
-        body[12:60] = self.hp.pack()
-        struct.pack_into("<I", body, 60, count)
+        struct.pack_into("<I", body, 8, pack_lang(self.src_lang))
+        struct.pack_into("<I", body, 12, pack_lang(self.tgt_lang))
+        body[16:64] = self.hp.pack()
+        struct.pack_into("<I", body, 64, count)
         for i, d in enumerate(descs):
             at = HEADER_BYTES + i * DESC_BYTES
             body[at : at + DESC_BYTES] = d
@@ -247,8 +248,32 @@ def align_up(x: int, a: int) -> int:
     return (x + a - 1) // a * a
 
 
+# fizh's short form for a registry language code. Up to four lowercase ASCII
+# bytes, big-endian, zero-padded on the left (`abi.Lang`).
+#
+# The registry is not all ISO 639-1: it ships `zh-Hans` and `zh-Hant`, which no
+# two-letter code can express and which four bytes still cannot hold verbatim.
+# fizh maps those to three-letter forms rather than inventing a longer field —
+# the code is an identifier for routing, not a BCP-47 tag, and it only has to
+# be unique and stable.
+LANG_SHORT = {"zh-hans": "zhs", "zh-hant": "zht"}
+
+
+def short_lang(s: str) -> str:
+    s = s.strip()
+    out = LANG_SHORT.get(s.lower(), s.lower())
+    if not (1 <= len(out) <= 4) or not out.isascii() or not out.isalpha():
+        raise SystemExit(
+            f"language {s!r} has no fizh short form: codes are one to four "
+            f"lowercase ASCII letters; add it to convert.LANG_SHORT")
+    return out
+
+
 def pack_lang(s: str) -> int:
-    return (ord(s[0]) << 8) | ord(s[1])
+    out = 0
+    for c in short_lang(s):
+        out = (out << 8) | ord(c)
+    return out
 
 
 # --------------------------------------------------------------------------

@@ -45,7 +45,8 @@ pub fn main(init: std.process.Init) !void {
         try err.print("usage: translate --model a.fzm [--model b.fzm] --src es --tgt en\n", .{});
         return error.BadUsage;
     }
-    if (src_lang.len != 2 or tgt_lang.len != 2) return error.BadLang;
+    if (src_lang.len < 1 or src_lang.len > abi.max_lang_len) return error.BadLang;
+    if (tgt_lang.len < 1 or tgt_lang.len > abi.max_lang_len) return error.BadLang;
 
     // Read every artifact first: the arena is sized from what they actually
     // are, not from a guess that a 384-wide model then fails to fit.
@@ -93,8 +94,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    const src = abi.langFrom(src_lang[0..2]);
-    const tgt = abi.langFrom(tgt_lang[0..2]);
+    const src = abi.langFrom(src_lang);
+    const tgt = abi.langFrom(tgt_lang);
     const route = fizh.canTranslate(handle, src, tgt);
     try err.print("{s}->{s}: route {d} (0 none, 1 direct, 2 pivot)\n", .{ src_lang, tgt_lang, route });
     if (route <= 0) return error.NoRoute;

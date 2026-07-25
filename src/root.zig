@@ -47,8 +47,8 @@ export fn fizh_translate(
     h: i32,
     src: [*]const u8,
     src_len: u32,
-    src_lang: u16,
-    tgt_lang: u16,
+    src_lang: u32,
+    tgt_lang: u32,
     out: [*]u8,
     out_cap: u32,
 ) i32 {
@@ -59,7 +59,7 @@ export fn fizh_translate(
 
 /// 0 = no, 1 = direct, 2 = pivot. Lets the host grey out a language before the
 /// user picks it.
-export fn fizh_can_translate(h: i32, src_lang: u16, tgt_lang: u16) i32 {
+export fn fizh_can_translate(h: i32, src_lang: u32, tgt_lang: u32) i32 {
     return runtime.canTranslate(h, src_lang, tgt_lang);
 }
 

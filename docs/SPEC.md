@@ -13,9 +13,9 @@ On 500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000 
 | Thing | Value |
 |---|---|
 | ABI prefix | `fizh_` |
-| Model artifact | `.fzm`, magic `FIZH` |
+| Model artifact | `.fzm`, magic `FIZH`, format version 3 |
 | Wasm artifacts | `fizh.{baseline,relaxed}.wasm` |
-| Language codes | `u16`, two ASCII bytes packed big-endian: `'e'<<8 \| 's'` = `es` |
+| Language codes | `u32`, one to four lowercase ASCII bytes packed big-endian, zero-padded on the left: `"es"` is `0x0000_6573`. Codes the registry ships that are not ISO 639-1 get a fizh short form — `zh-Hans` → `zhs`, `zh-Hant` → `zht` (`convert.LANG_SHORT`). This was `u16`, which is a convention this project invented and the registry does not honour. |
 
 Lowercase everywhere. Not an acronym.
 

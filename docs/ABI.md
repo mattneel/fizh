@@ -14,7 +14,7 @@ Three things, and nothing else:
 | `.fzm` format version | which artifacts this build will load |
 
 Everything reachable from the wasm module is listed by `zig build check`, which
-fails the build if the export count moves. As of format version 2 the exports
+fails the build if the export count moves. As of format version 3 the exports
 are `fizh_abi_version`, `fizh_arena_bytes`, `fizh_init`, `fizh_model_load`,
 `fizh_translate`, `fizh_can_translate`, `fizh_status_str`, and `memory`. The
 first four are setup and are stable in the same sense as the other three; they
@@ -30,6 +30,10 @@ layout, the tensor names inside a `.fzm` — all of it moves without notice.
 Returns the ABI version as a `u32`. A host must call it before anything else
 and refuse to proceed on a mismatch. It changes when the *shape* of a call
 changes: a parameter added, a status code repurposed, a struct field moved.
+
+Language codes are `u32` as of format 3 — one to four lowercase ASCII bytes,
+big-endian, zero-padded on the left, so `"es"` is `0x0000_6573` and `"zhs"` is
+`0x007a_6873`.
 
 Status codes are negative and additive. New ones may appear; existing ones do
 not change meaning or value. A host must therefore treat any unrecognised
@@ -62,6 +66,12 @@ Version history:
 |---|---|
 | 1 | initial format |
 | 2 | `act_quant` in the header, per-matmul `*.alpha` tensors, `tok.nonbreaking`, `sl.targets` narrowed to `u16`, `tok.charsmap` (optional) |
+| 3 | language codes widened `u16` → `u32`, header 64 → 128 bytes with 60 reserved. `pos_enc` moved into the slot. |
+
+Version 3 also changes two ABI signatures: `fizh_translate` and
+`fizh_can_translate` take `u32` language codes. A host built against version 2
+will pass truncated codes, so the ABI version moves with it — check
+`fizh_abi_version` and refuse on mismatch, which you should be doing anyway.
 
 A version bump is a converter change and a loader change in the same commit.
 `zig build convert-selftest` runs `tools/convert.py` against the real loader so

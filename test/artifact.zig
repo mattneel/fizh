@@ -331,8 +331,8 @@ const Builder = struct {
     fn writeHeader(self: *const Builder, out: []u8, count: u32) void {
         @memcpy(out[0..4], &format.magic);
         std.mem.writeInt(u32, out[4..8], format.version, .little);
-        std.mem.writeInt(u16, out[8..10], packLang(self.spec.src_lang), .little);
-        std.mem.writeInt(u16, out[10..12], packLang(self.spec.tgt_lang), .little);
+        std.mem.writeInt(u32, out[8..12], packLang(self.spec.src_lang), .little);
+        std.mem.writeInt(u32, out[12..16], packLang(self.spec.tgt_lang), .little);
 
         const hp: format.HParams = .{
             .d_model = self.spec.d_model,
@@ -357,8 +357,8 @@ const Builder = struct {
             .max_length_factor = 3.0,
         };
         const raw: [48]u8 = @bitCast(hp);
-        @memcpy(out[12..60], &raw);
-        std.mem.writeInt(u32, out[60..64], count, .little);
+        @memcpy(out[16..64], &raw);
+        std.mem.writeInt(u32, out[64..68], count, .little);
     }
 };
 

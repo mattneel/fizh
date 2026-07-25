@@ -69,8 +69,8 @@ class Model:
         self.raw = path.read_bytes()
         assert self.raw[:4] == MAGIC, "not a .fzm"
         (self.version,) = struct.unpack_from("<I", self.raw, 4)
-        (self.src_lang, self.tgt_lang) = struct.unpack_from("<HH", self.raw, 8)
-        hp = struct.unpack_from("<HHBBBBIHHIIIIBBBBfff", self.raw, 12)
+        (self.src_lang, self.tgt_lang) = struct.unpack_from("<II", self.raw, 8)
+        hp = struct.unpack_from("<HHBBBBIHHIIIIBBBBfff", self.raw, 16)
         (
             self.d_model, self.ffn_dim, self.n_enc, self.n_dec, self.n_heads,
             self.head_dim, self.vocab_size, self.max_pos, self.shortlist_width,
@@ -78,7 +78,7 @@ class Model:
             self.prenorm, self.tied, _r, self.emb_scale, self.norm_eps,
             self.max_length_factor,
         ) = hp
-        (self.count,) = struct.unpack_from("<I", self.raw, 60)
+        (self.count,) = struct.unpack_from("<I", self.raw, 64)
 
         self.index = {}
         for i in range(self.count):

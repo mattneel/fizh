@@ -241,21 +241,31 @@ test "the header's own fields are validated" {
     try testing.expectEqual(abi.Status.bad_version.int(), runtime.modelLoad(fx.handle, 0, copy));
 
     @memcpy(copy, art.bytes);
-    std.mem.writeInt(u16, copy[8..10], 0, .little);
+    std.mem.writeInt(u32, copy[8..12], 0, .little);
+    try testing.expectEqual(abi.Status.bad_lang.int(), runtime.modelLoad(fx.handle, 0, copy));
+
+    // Uppercase is not a language code, and neither is a zero wedged between
+    // two letters — padding is on the left or it is corruption.
+    @memcpy(copy, art.bytes);
+    std.mem.writeInt(u32, copy[8..12], abi.langFrom("ES"), .little);
+    try testing.expectEqual(abi.Status.bad_lang.int(), runtime.modelLoad(fx.handle, 0, copy));
+
+    @memcpy(copy, art.bytes);
+    std.mem.writeInt(u32, copy[8..12], ('a' << 24) | ('b' << 8) | 'c', .little);
     try testing.expectEqual(abi.Status.bad_lang.int(), runtime.modelLoad(fx.handle, 0, copy));
 
     // A direction that translates a language into itself is not a direction.
     @memcpy(copy, art.bytes);
-    std.mem.writeInt(u16, copy[8..10], abi.lang_en, .little);
-    std.mem.writeInt(u16, copy[10..12], abi.lang_en, .little);
+    std.mem.writeInt(u32, copy[8..12], abi.lang_en, .little);
+    std.mem.writeInt(u32, copy[12..16], abi.lang_en, .little);
     try testing.expectEqual(abi.Status.bad_lang.int(), runtime.modelLoad(fx.handle, 0, copy));
 
     @memcpy(copy, art.bytes);
-    std.mem.writeInt(u32, copy[60..64], 0, .little);
+    std.mem.writeInt(u32, copy[64..68], 0, .little);
     try testing.expectEqual(abi.Status.bad_artifact.int(), runtime.modelLoad(fx.handle, 0, copy));
 
     @memcpy(copy, art.bytes);
-    std.mem.writeInt(u32, copy[60..64], format.max_tensors + 1, .little);
+    std.mem.writeInt(u32, copy[64..68], format.max_tensors + 1, .little);
     try testing.expectEqual(abi.Status.bad_artifact.int(), runtime.modelLoad(fx.handle, 0, copy));
 }
 
