@@ -101,6 +101,29 @@ Bare `fzm-load x.fzm` used its own hardcoded ceilings, so it reported
 `LoadFailed` for every 384-wide pair that `translate` handled. It answered "does
 this fit the shape I guessed" where the sweep was asking "does this load".
 
+### 6. Four pairs ship a legacy tiny model — not a fizh defect
+
+`bg-en`, `en-bg`, `en-fr` and `fr-en` score 10–22 chrF++ below the reference
+and are not pre-releases: `min(size)` correctly picks their v1.0 tiny model.
+That artifact is simply a poor one. Their **v2.0** — the `d_model=384, n_dec=4`
+architecture, which fizh now loads — is correct:
+
+| | fizh, v1.0 tiny (17 MB) | fizh, v2.0 (33 MB) |
+|---|---|---|
+| en→fr | −21.70 chrF++ vs reference | `Le chat noir dort sur la table.` |
+| en→bg | −20.93 chrF++ vs reference | `Черната котка спи на масата.` |
+
+This is a **selection policy question, not a bug**. Firefox uses the newest
+version; fizh's fetcher takes the smallest, because SPEC §14 budgets weights at
+20 MB and the tiny student architecture is what §4.3 specifies. For 101 pairs
+those agree. For these four the tiny artifact is legacy and the current one is
+33 MB — over budget.
+
+The policy stays as it is, and the four are named in the README rather than
+averaged into a mean. Anyone who wants the newer model can point
+`tools/bergamot.py` at it directly; it converts and translates correctly, it
+simply does not fit the budget fizh is designed around.
+
 ## The result
 
 See the README for the matrix. The distribution is what matters: most pairs sit
