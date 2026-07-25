@@ -76,3 +76,38 @@ jobs:
         with: { version: 0.16.0 }
       - run: zig build -Dtarget=${{ matrix.target }}
       - run: echo "::notice::${{ matrix.target }} compiles. NOT tested — no runner."
+
+  # Work order 9 P5: the same engine, same weights, same corpus, on every ISA
+  # there is a runner for. Nobody publishes this for machine translation because
+  # nobody can build it from one tree.
+  #
+  # Dispatch-only. It fetches a real model per runner -- ADR 0016: a number from
+  # a synthetic artifact is not a measurement -- and that is ~35 MB and a
+  # conversion on each, which is too slow for every push.
+  cross-arch-bench:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    label: x86_64-linux }
+          - { os: ubuntu-24.04-arm, label: aarch64-linux }
+          - { os: macos-latest,     label: aarch64-macos }
+    runs-on: ${{ matrix.os }}
+    name: bench (${{ matrix.label }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python3 -m pip install --disable-pip-version-check numpy
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - run: tools/fetch-model.sh es en
+      - name: SPEC §14 budgets
+        run: zig build bench
+      - name: Per-phase timings, both optimize modes
+        run: |
+          zig build profile -Dprofile -Dprofile-mode=ReleaseSafe -- \
+            zig-out/esen.fzm --expect-mode ReleaseSafe
+          zig build profile -Dprofile -Dprofile-mode=ReleaseFast -- \
+            zig-out/esen.fzm --expect-mode ReleaseFast
