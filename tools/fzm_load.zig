@@ -29,20 +29,29 @@ pub fn main(init: std.process.Init) !void {
         return error.BadUsage;
     }
 
+    const blob = try Io.Dir.cwd().readFileAlloc(io, args[1], gpa, .limited(128 << 20));
+    defer gpa.free(blob);
+
+    // Ceilings default to whatever the artifact declares, so `fzm-load x.fzm`
+    // answers "does this load" rather than "does this fit the shape I guessed".
+    // `zig build convert-selftest` passes every dimension explicitly, which is
+    // the opposite question and still the one it asks.
+    const hp = fizh.format.peekHParams(blob);
+    const slot = std.mem.alignForward(u32, @intCast(blob.len), 64);
     var cfg = abi.Config{
         .abi_version = abi.abi_version,
         .max_models = 1,
-        .max_model_bytes = 24 << 20,
+        .max_model_bytes = slot +| (slot / 4),
         .max_src_bytes = 4096,
         .max_src_tokens = 256,
         .max_tgt_tokens = 384,
         .max_shortlist = 2048,
-        .max_d_model = 256,
-        .max_ffn_dim = 1536,
-        .max_enc_layers = 6,
-        .max_dec_layers = 2,
-        .max_heads = 8,
-        .max_vocab = 32768,
+        .max_d_model = if (hp) |h| h.d_model else 256,
+        .max_ffn_dim = if (hp) |h| h.ffn_dim else 1536,
+        .max_enc_layers = if (hp) |h| h.n_enc_layers else 6,
+        .max_dec_layers = if (hp) |h| h.n_dec_layers else 2,
+        .max_heads = if (hp) |h| h.n_heads else 8,
+        .max_vocab = if (hp) |h| h.vocab_size else 32768,
         .reserved = .{ 0, 0, 0 },
     };
 
@@ -65,9 +74,6 @@ pub fn main(init: std.process.Init) !void {
         try out.print("config rejected: {s}\n", .{abi.statusStr(bad.int())});
         return error.BadConfig;
     }
-
-    const blob = try Io.Dir.cwd().readFileAlloc(io, args[1], gpa, .limited(128 << 20));
-    defer gpa.free(blob);
 
     const cfg_bytes = cfg.bytes();
     const n = fizh.arenaBytes(&cfg_bytes);
