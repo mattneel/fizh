@@ -4,7 +4,7 @@
 #   tools/fetch-model.sh es en            # -> zig-out/esen.fzm
 #   tools/fetch-model.sh en de models/    # into a directory of your choosing
 #
-# The models are Mozilla's, CC-BY-SA-4.0, and are NOT vendored here. Firefox
+# The models are Mozilla's, MPL-2.0, and are NOT vendored here. Firefox
 # downloads them from remote settings at runtime and so does this script; the
 # GitHub mirror stores them in LFS and does not serve the objects anonymously.
 set -euo pipefail

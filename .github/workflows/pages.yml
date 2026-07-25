@@ -1,0 +1,70 @@
+name: benchmark page
+
+# Publishes the SPEC §13 T5 harness to GitHub Pages so §14 can be measured on
+# real hardware instead of a desktop. See docs/adr/0021.
+#
+# Model versions are pinned in tools/pins.py — a benchmark whose inputs drift
+# is not a benchmark.
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel one in flight, or Pages is left half-updated.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build both wasm artifacts and the probe
+        run: zig build wasm
+
+      - name: Audit the SPEC §3 budgets
+        run: zig build check
+
+      - name: Fetch and convert the pinned models
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 -c \
+            'from pins import BENCH; print("\n".join(f"{s} {t}" for s, t in BENCH))' > pairs.txt
+          while read -r src tgt; do
+            echo "::group::$src -> $tgt"
+            tools/fetch-model.sh "$src" "$tgt"
+            echo "::endgroup::"
+          done < pairs.txt
+
+      - name: Assemble the site
+        run: |
+          python3 tools/build-site.py \
+            --out _site \
+            --repo "${{ github.server_url }}/${{ github.repository }}" \
+            --built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

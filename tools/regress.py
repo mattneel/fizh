@@ -5,7 +5,7 @@
     python3 tools/regress.py --update   re-record, deliberately
 
 Skips with a clear message when the model is absent, because the model is 19 MB
-of CC-BY-SA data that this repository does not vendor. It is one command away:
+of MPL-2.0 model data that this repository does not vendor. One command away:
 `tools/fetch-model.sh es en`.
 
 This is the test the project did not have. Ninety-eight tests passed against

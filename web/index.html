@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fizh — SPEC §14 on real hardware</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header>
+  <h1>fizh</h1>
+  <p class="sub">On-device neural machine translation in Zig, compiled to
+  <code>wasm32-freestanding</code>. This page runs SPEC §13 T5: the §14 budgets
+  on whatever device you opened it with.</p>
+  <p class="sub">Every number the project has published so far is a desktop
+  proxy. <strong>The premise (invariant I1) is that Mozilla's engine is
+  intgemm-based and x86-tuned while phones are ARM.</strong> The baseline /
+  relaxed-SIMD comparison below is that premise, measured.</p>
+  <dl class="build" id="build"></dl>
+</header>
+
+<main>
+
+<section>
+  <h2>1. Runtime</h2>
+  <div class="row">
+    <div>
+      <div class="label">relaxed SIMD</div>
+      <div class="value" id="probe">detecting…</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="force-baseline">
+      <span>Force baseline build</span>
+    </label>
+  </div>
+  <p class="note">Detection instantiates a 92-byte probe module that uses one
+  relaxed instruction (SPEC §3, ADR 0006). The toggle exists so the same device
+  produces both numbers — that comparison has never been run on ARM.</p>
+</section>
+
+<section>
+  <h2>2. Models</h2>
+  <p class="note">Fetched on demand: a pivot pair is ~40 MB and the wide
+  architecture is 33 MB, so nothing downloads until you ask for it.</p>
+  <div id="models"></div>
+  <div class="row">
+    <button id="run" disabled>Run the §14 benchmark</button>
+    <span id="status"></span>
+  </div>
+  <div class="bar"><div id="bar"></div></div>
+</section>
+
+<section id="results-section" hidden>
+  <h2>3. Results</h2>
+  <table id="results"></table>
+  <p class="note" id="mem"></p>
+  <h3>Copyable result</h3>
+  <p class="note">Paste this into an issue. It carries the build, the model
+  hashes and the device, so the numbers are attributable.</p>
+  <textarea id="json" readonly rows="14"></textarea>
+  <button id="copy">Copy JSON</button>
+</section>
+
+<section>
+  <h2>4. Try it</h2>
+  <p class="note">Not the point of the page, but it is how you find out whether
+  it feels usable, which no number reports.</p>
+  <div class="row">
+    <select id="dir"></select>
+  </div>
+  <textarea id="in" rows="3" placeholder="Load a model first…"></textarea>
+  <button id="go" disabled>Translate</button>
+  <div class="out" id="out"></div>
+</section>
+
+</main>
+
+<footer>
+  <p>Translation models are Mozilla's
+  <a href="https://github.com/mozilla/firefox-translations-models">firefox-translations-models</a>,
+  MPL-2.0, converted to fizh's <code>.fzm</code> format. fizh itself is at
+  <a href="https://github.com/" id="repo">its repository</a>.</p>
+</footer>
+
+<script type="module" src="./bench.js"></script>
+</body>
+</html>

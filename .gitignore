@@ -13,3 +13,5 @@ bindings/python/*.egg-info/
 # Reference engine and models: fetched, not vendored (CC-BY-SA / upstream builds)
 tools/eval/reference/
 tools/eval/corpora/flores.*.tsv
+_site/
+pairs.txt
