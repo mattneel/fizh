@@ -35,6 +35,12 @@ pub const Region = extern struct {
 /// Named after SPEC §4.2. Regions past `io_dst` are implementation detail that
 /// §4.2 does not enumerate; they are small, and they are listed in
 /// `docs/adr/0002-arena-regions.md`.
+///
+/// **Everything here is scratch: overwritten by every pass, owned by none.**
+/// Data derived from *one model's* parameters does not belong here, however
+/// convenient the sharing looks — it is carved in that model's weight slot
+/// instead (SPEC §4.1). `pos_enc` used to live here and load order decided
+/// whether it was correct; see ADR 0020.
 pub const Layout = struct {
     total: u32,
 
@@ -42,7 +48,6 @@ pub const Layout = struct {
     weights: [abi.limits.models]Region,
     weights_count: u32,
 
-    pos_enc: Region,
     xattn_kv: Region,
     /// SSRU carries one `d_model` cell vector per decoder layer, and that is
     /// the whole recurrent state (ADR 0008). The transformer KV cache this
@@ -107,7 +112,6 @@ pub const Layout = struct {
         layout.weights_count = cfg.max_models;
         for (0..cfg.max_models) |i| layout.weights[i] = c.take(cfg.max_model_bytes);
 
-        layout.pos_enc = c.take(steps * d * 4);
         layout.xattn_kv = c.take(2 * dec * s * d * 4);
         layout.ssru_state = c.take(dec * d * 4);
         layout.enc_states = c.take(s * d * 4);
@@ -226,7 +230,7 @@ test "layout is 64-byte aligned everywhere and fits the SPEC §4.3 example" {
     const layout = Layout.compute(cfg).?;
 
     const regions = [_]Region{
-        layout.pos_enc,     layout.xattn_kv,        layout.ssru_state, layout.enc_states,
+        layout.xattn_kv,    layout.ssru_state,      layout.enc_states,
         layout.act_a,       layout.act_b,           layout.qact,      layout.qact_scales,
         layout.attn_work,   layout.attn_scores,
         layout.vec,         layout.qvec,            layout.shortlist_rows, layout.shortlist_ids,

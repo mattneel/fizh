@@ -26,15 +26,6 @@ pub const Instance = struct {
     cfg: abi.Config,
     arena: arena_mod.Arena,
     models: [abi.limits.models]format.Model,
-    /// `d_model` the shared `pos_enc` table currently holds encodings for.
-    ///
-    /// Sinusoidal encodings depend on `d_model` — a 256-wide table is not a
-    /// prefix of a 384-wide one — so one shared region cannot serve two models
-    /// of different width. Firefox's registry ships both, and a pivot that
-    /// crosses widths read the wrong table for one of its two hops: fluent
-    /// output, wrong words, no assertion. Refilling costs one sinusoid pass and
-    /// only happens when the width actually changes.
-    pos_d: u32 = 0,
 
     pub fn slots(self: *const Instance) []const format.Model {
         return self.models[0..self.cfg.max_models];
@@ -96,11 +87,8 @@ pub fn modelLoad(h: i32, slot: u32, blob: []const u8) i32 {
     assert(region.off % arena_mod.alignment == 0);
     const slot_bytes = inst.arena.bytes(region);
 
-    const pos_region = inst.arena.layout.pos_enc;
-    const pos = inst.arena.view(f32, pos_region, pos_region.len / 4);
-
     const model = &inst.models[slot];
-    const status = format.load(blob, inst.cfg, slot_bytes, pos, model);
+    const status = format.load(blob, inst.cfg, slot_bytes, model);
     if (status != .ok) {
         assert(!model.loaded);
         return status.int();
@@ -203,15 +191,6 @@ fn runPass(inst: *Instance, slot: u8, in: []const u8, out: []u8) PassError!u32 {
     assert(out.len >= in.len);
     if (!inst.models[slot].loaded) return error.NotLoaded;
 
-    const d = inst.models[slot].hp.d_model;
-    if (inst.pos_d != d) {
-        const region = inst.arena.layout.pos_enc;
-        const steps = @max(inst.cfg.max_src_tokens, inst.cfg.max_tgt_tokens);
-        format.fillPositional(inst.arena.view(f32, region, @as(usize, steps) * d), d, steps);
-        inst.pos_d = d;
-    }
-    assert(inst.pos_d == d);
-
     var ctx = buildCtx(inst, slot);
     const written = pass.run(&ctx, in, out) catch |e| switch (e) {
         error.SrcTooLong => return error.SrcTooLong,
@@ -244,16 +223,25 @@ fn buildCtx(inst: *Instance, slot: u8) pass.Ctx {
     assert(m.loaded);
     assert(m.hp.d_model <= d and m.hp.ffn_dim <= f);
 
+    const slot_bytes = a.bytes(l.weights[slot]);
+    // SPEC §4.1: slot-derived data is read through the slot it was derived
+    // from, never through a shared region. The assertion is the category made
+    // checkable — if this view ever came from anywhere else, it fires.
+    const pos = m.posEncConst(slot_bytes);
+    assert(pos.len == @as(usize, steps) * m.hp.d_model);
+    assert(@intFromPtr(pos.ptr) >= @intFromPtr(slot_bytes.ptr));
+    assert(@intFromPtr(pos.ptr) + pos.len * 4 <= @intFromPtr(slot_bytes.ptr) + slot_bytes.len);
+
     return .{
         .model = m,
-        .slot = a.bytes(l.weights[slot]),
+        .slot = slot_bytes,
         .hp = m.hp,
         .sl = m.sl,
         .max_src_tokens = s,
         .max_tgt_tokens = t,
         .max_shortlist = cfg.max_shortlist,
 
-        .pos_enc = a.view(f32, l.pos_enc, @as(usize, steps) * d),
+        .pos_enc = pos,
         .xattn_kv = a.view(f32, l.xattn_kv, 2 * @as(usize, cfg.max_dec_layers) * s * d),
         .ssru_state = a.view(f32, l.ssru_state, @as(usize, cfg.max_dec_layers) * d),
         .enc_states = a.view(f32, l.enc_states, @as(usize, s) * d),

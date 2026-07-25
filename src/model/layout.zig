@@ -137,6 +137,9 @@ pub const DecLayer = struct {
 /// tensor table and are validated before they get here.
 pub const Sizes = struct {
     piece_bytes: u32,
+    /// Positional-encoding steps to carve, `max(max_src_tokens, max_tgt_tokens)`
+    /// from the host's config. Zero only in tests that do not decode.
+    pos_steps: u32 = 0,
     prefix_bytes: u32 = 0,
     charsmap_bytes: u32 = 0,
     shortlist_nnz: u32,
@@ -166,6 +169,15 @@ pub const SlotLayout = struct {
     tok_prefixes_len: u32,
     tok_charsmap: u32,
     tok_charsmap_len: u32,
+
+    /// Sinusoidal positional encodings, `pos_steps · d_model` floats.
+    ///
+    /// **This lives in the slot, not in shared scratch, and that is the whole
+    /// point.** It is derived from one model's `d_model` at load time, and
+    /// sinusoidal encodings are not a prefix of a wider model's, so a shared
+    /// table means load order decides correctness. SPEC §4.1, ADR 0020.
+    pos_enc: u32,
+    pos_enc_len: u32,
 
     sl_offsets: u32,
     sl_targets: u32,
@@ -226,6 +238,8 @@ pub const SlotLayout = struct {
         out.tok_prefixes_len = sizes.prefix_bytes;
         out.tok_charsmap = c.take(sizes.charsmap_bytes);
         out.tok_charsmap_len = sizes.charsmap_bytes;
+        out.pos_enc = c.take(@as(u64, sizes.pos_steps) * d * 4);
+        out.pos_enc_len = sizes.pos_steps * d;
 
         out.sl_offsets = c.take((@as(u64, v) + 1) * 4);
         out.sl_targets = c.take(@as(u64, sizes.shortlist_nnz) * 2);

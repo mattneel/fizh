@@ -118,8 +118,9 @@ test "the positional table is filled at load" {
     try testing.expectEqual(abi.Status.ok.int(), runtime.modelLoad(fx.handle, 0, art.bytes));
 
     const inst = runtime.instanceForTest().?;
-    const region = inst.arena.layout.pos_enc;
-    const pos = inst.arena.view(f32, region, region.len / 4);
+    // Read it where it lives: in slot 0's own weights, not in shared scratch.
+    const slot = inst.arena.bytes(inst.arena.layout.weights[0]);
+    const pos = inst.models[0].posEncConst(slot);
     const d = inst.models[0].hp.d_model;
 
     // Row 0 is sin(0)=0 in the first half, cos(0)=1 in the second.

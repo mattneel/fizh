@@ -211,6 +211,21 @@ pub const Model = struct {
         return .{ .blob = slot[self.sl.tok_charsmap..][0..self.sl.tok_charsmap_len] };
     }
 
+    /// This model's positional encodings, a view into its own slot. Never
+    /// shared: see `SlotLayout.pos_enc` and SPEC §4.1.
+    pub fn posEnc(self: *const Model, slot: []u8) []f32 {
+        assert(self.sl.pos_enc % 4 == 0);
+        const at = slot[self.sl.pos_enc..][0 .. @as(usize, self.sl.pos_enc_len) * 4];
+        return @alignCast(std.mem.bytesAsSlice(f32, at));
+    }
+
+    /// Read-only view of the same region, for a pass.
+    pub fn posEncConst(self: *const Model, slot: []const u8) []const f32 {
+        assert(self.loaded);
+        const at = slot[self.sl.pos_enc..][0 .. @as(usize, self.sl.pos_enc_len) * 4];
+        return @alignCast(std.mem.bytesAsSlice(f32, at));
+    }
+
     pub fn prefixes(self: *const Model, slot: []const u8) []const u8 {
         assert(self.loaded);
         if (self.sl.tok_prefixes_len == 0) return &.{};
@@ -287,14 +302,13 @@ pub fn load(
     blob: []const u8,
     cfg: abi.Config,
     slot: []u8,
-    pos_enc: []f32,
     out: *Model,
 ) abi.Status {
     assert(slot.len == cfg.max_model_bytes);
     assert(@intFromPtr(slot.ptr) % layout.alignment == 0);
 
     out.loaded = false;
-    loadInner(blob, cfg, slot, pos_enc, out) catch |e| return statusOf(e);
+    loadInner(blob, cfg, slot, out) catch |e| return statusOf(e);
 
     assert(out.loaded);
     assert(out.slot_used <= slot.len);
@@ -305,13 +319,15 @@ fn loadInner(
     blob: []const u8,
     cfg: abi.Config,
     slot: []u8,
-    pos_enc: []f32,
     out: *Model,
 ) LoadError!void {
     const head = try parseHeader(blob, cfg);
     try validateTable(blob, head.count);
 
-    const sizes = try measure(blob, head.count, head.hp.vocab_size);
+    var sizes = try measure(blob, head.count, head.hp.vocab_size);
+    // Per-model derived data is carved in the model's own slot (SPEC §4.1), so
+    // the host's step ceiling has to reach the slot layout.
+    sizes.pos_steps = @max(cfg.max_src_tokens, cfg.max_tgt_tokens);
     const sl = layout.SlotLayout.compute(head.hp, sizes) orelse return error.ModelTooLarge;
     if (sl.total > slot.len) return error.ModelTooLarge;
 
@@ -335,7 +351,7 @@ fn loadInner(
         out.loaded = false;
         return error.BadArtifact;
     }
-    fillPositional(pos_enc, head.hp.d_model, @max(cfg.max_src_tokens, cfg.max_tgt_tokens));
+    fillPositional(out.posEnc(slot), head.hp.d_model, sizes.pos_steps);
 }
 
 const Header = struct {
