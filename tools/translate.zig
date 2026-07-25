@@ -142,8 +142,12 @@ fn configFor(blob: []const u8) ?abi.Config {
         // Repack can grow a slot past the file; a quarter is ample headroom.
         .max_model_bytes = slot +| (slot / 4),
         .max_src_bytes = 4096,
-        .max_src_tokens = 256,
-        .max_tgt_tokens = 768,
+        // Positional encodings only exist up to the artifact's `max_pos`, and
+        // the loader rejects a config that asks for more. Clamping here rather
+        // than failing means an artifact converted before SPEC §4.3 raised
+        // `max_tgt_tokens` still loads, with its own shorter bound.
+        .max_src_tokens = @min(256, hp.max_pos),
+        .max_tgt_tokens = @min(768, hp.max_pos),
         .max_shortlist = 2048,
         .max_d_model = hp.d_model,
         .max_ffn_dim = hp.ffn_dim,

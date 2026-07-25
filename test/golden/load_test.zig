@@ -11,6 +11,7 @@ const abi = @import("../../src/abi.zig");
 const arena_mod = @import("../../src/arena.zig");
 const format = @import("../../src/model/format.zig");
 const runtime = @import("../../src/runtime.zig");
+const encoder = @import("../../src/graph/encoder.zig");
 const trie = @import("../../src/tok/trie.zig");
 const unigram = @import("../../src/tok/unigram.zig");
 const artifact = @import("../artifact.zig");
@@ -270,4 +271,54 @@ test "a missing tensor is missing_tensor, not a silent zero" {
     const at: usize = @intCast(format.header_bytes);
     copy[at] ^= 0x40;
     try testing.expectEqual(abi.Status.missing_tensor.int(), runtime.modelLoad(fx.handle, 0, copy));
+}
+
+test "a narrower model is unaffected by a wider one sharing the arena" {
+    // `pos_enc` is one shared region and sinusoidal encodings depend on
+    // `d_model` — a 32-wide table is not a prefix of a 16-wide one. Loading a
+    // second model of a different width used to overwrite the table the first
+    // one needs, which showed up only as wrong words: fluent output, no
+    // assertion, and only on a pivot that crossed widths.
+    //
+    // The property is that loading B cannot change what A produces.
+    // Uniform-random int8 mixes harder than trained weights and collapses the
+    // encoder legitimately; SPEC §12.10's invariant is about trained models.
+    encoder.collapse_limit = 1.01;
+    defer encoder.collapse_limit = 0.95;
+
+    var out_alone: [256]u8 = undefined;
+    var out_shared: [256]u8 = undefined;
+    const msg = "hola que tal";
+
+    var alone_len: usize = 0;
+    {
+        var fx = try Fixture.init();
+        defer fx.deinit();
+        var a = try artifact.build(testing.allocator, .{ .src_lang = "es".*, .tgt_lang = "en".* });
+        defer a.deinit(testing.allocator);
+        try testing.expectEqual(abi.Status.ok.int(), runtime.modelLoad(fx.handle, 0, a.bytes));
+        const n = runtime.translate(fx.handle, msg, abi.langFrom("es"), abi.lang_en, &out_alone);
+        try testing.expect(n > 0);
+        alone_len = @intCast(n);
+    }
+
+    {
+        var fx = try Fixture.init();
+        defer fx.deinit();
+        var a = try artifact.build(testing.allocator, .{ .src_lang = "es".*, .tgt_lang = "en".* });
+        defer a.deinit(testing.allocator);
+        // Half the width, same everything else.
+        var b = try artifact.build(testing.allocator, .{
+            .src_lang = "en".*,
+            .tgt_lang = "de".*,
+            .d_model = 16,
+        });
+        defer b.deinit(testing.allocator);
+
+        try testing.expectEqual(abi.Status.ok.int(), runtime.modelLoad(fx.handle, 0, a.bytes));
+        try testing.expectEqual(abi.Status.ok.int(), runtime.modelLoad(fx.handle, 1, b.bytes));
+        const n = runtime.translate(fx.handle, msg, abi.langFrom("es"), abi.lang_en, &out_shared);
+        try testing.expect(n > 0);
+        try testing.expectEqualStrings(out_alone[0..alone_len], out_shared[0..@intCast(n)]);
+    }
 }
