@@ -40,6 +40,11 @@ const paragraph = (n) =>
 const SHORT = message(12);
 const LONG = message(120);
 const PARA = paragraph(PARA_SENTENCES);
+// A near-empty case, so the fit has a low anchor and the per-call floor is read
+// directly instead of extrapolated. The desktop run put fizh ~10 ms above
+// bergamot at zero tokens with throughput at parity, and a two-point fit cannot
+// separate that floor from curvature. This can.
+const TINY = "el gato";
 
 // A p99 needs the samples to support it. The 12-token case is cheap enough to
 // run 300 times; the others are not, and report max instead — labelled as max.
@@ -93,6 +98,7 @@ const round = (x) => (x === null || x === undefined ? null : Math.round(x * 100)
 
 function casesFor(set) {
   const c = [
+    { name: "2-word floor", text: TINY, from: set.from, to: set.to, runs: RUNS.short },
     { name: "12-token, direct", text: SHORT, from: set.from, to: set.to, runs: RUNS.short },
     { name: "120-token, direct", text: LONG, from: set.from, to: set.to, runs: RUNS.long },
     { name: "8-sentence paragraph", text: PARA, from: set.from, to: set.to,

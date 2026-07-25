@@ -421,6 +421,20 @@ Three things this table now states that the desktop one could not:
 
 **Burst and steady state are separate numbers.** The first run showed min 39.6 against p50 59.5 with no tail above it — a 50% spread that is DVFS or big.LITTLE migration on an 8-core heterogeneous device, not the runtime. Web code cannot pin affinity, so the harness reports burst (first quarter of samples) and steady (second half) as distinct rows and records run duration and page visibility. **Do not tune against a number whose variance is the CPU scheduler.**
 
+### Against bergamot, measured
+
+Same page, same machine, same upstream weights, foreground (ADR 0027). Both engines single-threaded.
+
+| | fizh | bergamot |
+|---|---|---|
+| 120-token p50 | 222.9 ms | 208.3 ms |
+| per-token throughput | 1.3657 ms/tok | 1.3371 ms/tok |
+| cold start | **20.5 ms** | 128.8 ms |
+| engine | **102 KiB** | 5,120 KiB |
+| peak linear memory | **86 MiB** | 522 MiB |
+
+Throughput ratio **1.021** — parity. What remains is ~10 ms of fixed per-call cost, which natively is 0.09 ms and is therefore wasm-specific. This is x86, where intgemm has AVX2 and VNNI paths ARM does not; **I1 is a claim about ARM and is still unmeasured.**
+
 ### Desktop figures, which are not budgets
 
 `zig build bench` still measures on the build machine. Those numbers are useful for catching a 3× regression between commits and for nothing else; they are not a budget and passing them means nothing about a phone. At the §4.3 config on the development desktop: cold start 5.8 ms, p50 12-token 14.8, p99 120-token 130, paragraph 64.8, scratch 6.4 MB.

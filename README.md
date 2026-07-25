@@ -51,6 +51,29 @@ One caveat travels with the first run: its p99 came from 30 samples, where the
 99th percentile is the worst sample by definition. The harness now refuses to
 print a p99 below 300 runs.
 
+### Against bergamot, on one machine, same weights
+
+`bergamot-translator`'s own wasm engine, run from the same page on the same
+device over the same corpus — Win64, Chrome 150, foreground. Both engines read
+the same upstream `es-en` model (fizh's `.fzm` is the converted container).
+
+| | fizh | bergamot | |
+|---|---|---|---|
+| 12-token p50 | 31.7 ms | 21.1 ms | 1.50× |
+| 120-token p50 | 222.9 ms | 208.3 ms | **1.07×** |
+| 8-sentence paragraph | 139.5 ms | 88.4 ms | 1.58× |
+| **cold start** | **20.5 ms** | 128.8 ms | **6.3× faster** |
+| **engine size** | **102 KiB** | 5,120 KiB | **50× smaller** |
+| **peak linear memory** | **86 MiB** | 522 MiB | **6.1× less** |
+
+**Per-token throughput is at parity**: fitting both engines across the same two
+points gives 1.3657 vs 1.3371 ms/token, a ratio of **1.021**. The remaining
+difference is ~10 ms of fixed per-call cost, which natively is 0.09 ms — so it
+is wasm-specific and not a kernel property.
+
+That is x86, which is intgemm's home turf: it has AVX2 and VNNI paths that do
+not exist on ARM. **Invariant I1 is a claim about ARM and remains unmeasured.**
+
 ### Against the reference implementation
 
 500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000
