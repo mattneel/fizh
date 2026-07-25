@@ -302,7 +302,12 @@ def main(argv=None) -> int:
     p.add_argument("--lex", type=Path)
     p.add_argument("--src", default="es")
     p.add_argument("--tgt", default="en")
-    p.add_argument("--max-pos", type=int, default=512)
+    # Positional encodings are generated up to this many steps and the loader
+    # rejects a config whose max_src/max_tgt exceeds it. SPEC §4.3 sets
+    # max_tgt_tokens to 3x max_src_tokens = 768 from measured target/source
+    # ratios, so 512 would reject every artifact; 1024 leaves room to raise
+    # max_src_tokens without re-converting.
+    p.add_argument("--max-pos", type=int, default=1024)
     p.add_argument("--length-factor", type=float, default=3.0)
     p.add_argument("--activation-quant", choices=("dynamic", "static"), default="dynamic",
                    help="dynamic = SPEC §7 per-row absmax; static = the "

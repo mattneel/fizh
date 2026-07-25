@@ -230,7 +230,7 @@ fn bergamotConfig() abi.Config {
         .max_model_bytes = 24 << 20,
         .max_src_bytes = 4096,
         .max_src_tokens = 256,
-        .max_tgt_tokens = 384,
+        .max_tgt_tokens = 768,
         .max_shortlist = 2048,
         .max_d_model = 256,
         .max_ffn_dim = 1536,

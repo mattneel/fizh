@@ -118,7 +118,9 @@ A pivot is two sequential passes. Pass one completes before pass two starts, so 
 
 ### 4.3 Worked example
 
-Bergamot-student hyperparameters (`d_model=256`, `ffn=1536`, `n_enc=6`, `n_dec=2`, `vocab=32k`), `max_src_tokens=256`, `max_tgt_tokens=384`, `max_shortlist=2048`, `max_src_bytes=4096`. Verify per artifact at M2.
+Bergamot-student hyperparameters (`d_model=256`, `ffn=1536`, `n_enc=6`, `n_dec=2`, `vocab=32k`), `max_src_tokens=256`, `max_tgt_tokens=768`, `max_shortlist=2048`, `max_src_bytes=4096`. Verify per artifact at M2.
+
+`max_tgt_tokens` is `3 × max_src_tokens`, which is measured rather than guessed. Across 36 language pairs and 100 FLORES segments each, tokenized with each model's own vocabulary, the worst per-segment target/source token ratio is **2.412** (ko→en) and the median of per-pair medians is 1.032. It was `1.5 ×`, which no measurement supported and which sits below the observed maximum — a source at the limit could have had its tail silently dropped. Three also makes the two bounds in §12.3 agree: the artifacts ship `max_length_factor = 3.0`, so neither bound is dead weight.
 
 | | |
 |---|---|

@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
         .max_model_bytes = slot +| (slot / 4),
         .max_src_bytes = 4096,
         .max_src_tokens = 256,
-        .max_tgt_tokens = 384,
+        .max_tgt_tokens = 768,
         .max_shortlist = 2048,
         .max_d_model = if (hp) |h| h.d_model else 256,
         .max_ffn_dim = if (hp) |h| h.ffn_dim else 1536,
