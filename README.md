@@ -8,11 +8,15 @@ Text in, language code in, translated text out. Nothing else.
 `docs/SPEC.md` is the specification. This file is the map.
 
 ```
-tools/fetch-model.sh es en                       # 19 MB, one command
+zig build                                        # Zig 0.16
+tools/fetch-model.sh es en                       # 19 MB, downloads and converts
 echo 'El gato negro duerme en la mesa.' \
   | ./zig-out/bin/translate --model zig-out/esen.fzm --src es --tgt en
 # The black cat sleeps on the table.
 ```
+
+Those three lines are the whole path from an empty checkout to a translation,
+and they are tested as such — `git clone`, build, fetch, translate.
 
 ## It works
 

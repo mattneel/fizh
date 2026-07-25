@@ -144,6 +144,18 @@ def convert(args) -> int:
     eos = special("</s>", args.eos)
     unk = special("<unk>", args.unk)
     bos = special("<s>", eos)  # Marian starts the decoder with EOS when there is no BOS
+    if "Wemb" not in tensors and "encoder_Wemb" in tensors:
+        # en-ja, en-ko and en-zh-* ship `tied-embeddings-all: false` with
+        # separate `encoder_Wemb`/`decoder_Wemb` and two vocabulary files
+        # (srcvocab/trgvocab). fizh assumes one vocabulary end to end: the
+        # tokenizer, the shortlist's source index, and the tied output
+        # projection all read the same table. Supporting untied embeddings is a
+        # different runtime, not a converter flag, so refuse by name rather than
+        # by the symptom. ADR 0019.
+        raise SystemExit(
+            f"{args.model}: untied embeddings (encoder_Wemb + decoder_Wemb, "
+            f"tied-embeddings-all: false). fizh requires one shared vocabulary; "
+            f"this pair needs separate source and target vocabularies.")
     emb = need("Wemb")
     vocab_size = emb.shape[0]
     if len(vocab) != vocab_size:
