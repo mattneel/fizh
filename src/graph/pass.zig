@@ -164,10 +164,16 @@ pub fn run(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
         const sentence = in[span.start..span.end];
         if (sentence.len == 0) continue;
 
+        // The separator between sentences is copied from the source verbatim,
+        // not normalized to a space. bergamot-translator does the same, and a
+        // seam that differs from its output costs chrF++ at every join —
+        // word 2-grams straddle the boundary, so the penalty scales with the
+        // sentence count rather than being a fixed cost per document.
         if (idx != 0) {
-            if (written + 1 > out.len) return error.OutTooSmall;
-            out[written] = ' ';
-            written += 1;
+            const gap = in[prev_end..span.start];
+            if (written + gap.len > out.len) return error.OutTooSmall;
+            @memcpy(out[written..][0..gap.len], gap);
+            written += @intCast(gap.len);
         }
         written += try sentence_(ctx, sentence, out[written..]);
         prev_end = span.end;
