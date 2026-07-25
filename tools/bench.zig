@@ -29,7 +29,7 @@ const Budget = struct {
     /// numbers never saw.
     warm_p50_paragraph_ms: f64 = 100,
     scratch_bytes: u64 = 10 << 20,
-    weights_bytes: u64 = 20 << 20,
+    weights_bytes: u64 = 35 << 20,
 };
 
 const iterations: u32 = 60;

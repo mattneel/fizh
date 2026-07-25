@@ -276,7 +276,7 @@ def convert(args) -> int:
 
     size = art.write(args.out)
     print(f"  {args.out}: {size / (1 << 20):.2f} MB "
-          f"({'over' if size > 20 << 20 else 'within'} the SPEC §14 20 MB budget)",
+          f"({'over' if size > 35 << 20 else 'within'} the SPEC §14 35 MB budget)",
           file=sys.stderr)
     return 0
 

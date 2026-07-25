@@ -41,12 +41,13 @@ if not recs:
 #      v1.0a1 translates to fluent nonsense through fizh where v1.0 is correct.
 #   2. Then take the smallest, which is the "tiny" student architecture fizh
 #      implements (SPEC §4.3) rather than the "base" model beside it.
-def stable(r):
-    return not re.search(r"[a-zA-Z]", str(r.get("version", "")))
+sys.path.insert(0, "tools")
+import pins
 
 models = [r for r in recs if r["fileType"] == "model"]
-released = [r for r in models if stable(r)] or models
-model = min(released, key=lambda r: r["attachment"]["size"])
+model = pins.choose((src, tgt), models)
+if model is None:
+    raise SystemExit(f"no {src}->{tgt} model attachment")
 version = model.get("version")
 print(f"  {src}->{tgt} version {version}, model {model['attachment']['size']} bytes")
 

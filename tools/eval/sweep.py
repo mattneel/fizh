@@ -29,14 +29,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from chrf import corpus_score  # noqa: E402
+import pins  # noqa: E402
 
 REGISTRY = ("https://firefox.settings.services.mozilla.com/v1/buckets/main"
             "/collections/translations-models/records")
@@ -74,14 +75,9 @@ def fetch(pair, raw: Path, base: str, records) -> dict:
     src, tgt = pair
     recs = [r for r in records if r.get("fromLang") == src and r.get("toLang") == tgt]
     models = [r for r in recs if r["fileType"] == "model"]
-    if not models:
+    model = pins.choose(pair, models)
+    if model is None:
         return {"error": "no model attachment"}
-    # See tools/fetch-model.sh for why pre-releases are skipped: they are often
-    # smaller than the release they preceded, so smallest-first selects them,
-    # and they are not the artifact Firefox ships.
-    released = [r for r in models
-                if not re.search(r"[a-zA-Z]", str(r.get("version", "")))] or models
-    model = min(released, key=lambda r: r["attachment"]["size"])
     version = model.get("version")
     raw.mkdir(parents=True, exist_ok=True)
     got = {}

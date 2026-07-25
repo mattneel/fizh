@@ -98,6 +98,19 @@ One arena, carved at init, never resized, no sub-allocators.
 
 A pivot is two sequential passes. Pass one completes before pass two starts, so **scratch is sized by the max over loaded models, not the sum.** Only the weight slots are additive.
 
+That sentence is about *sizing*, and it was silent about *content*. Two kinds of region get carved and they are not interchangeable:
+
+| kind | lifetime | may be shared |
+|---|---|---|
+| **scratch** | one pass; overwritten by the next | yes — that is the point above |
+| **per-model derived data** | one model; computed at load from *its* parameters | **no** |
+
+**Per-model derived data lives in that model's slot, never in shared scratch.** A shared region holding something derived from one model's parameters means load order decides correctness, and it fails silently: fluent output, wrong words, no assertion. `pos_enc` was exactly this — sinusoidal encodings depend on `d_model`, a 256-wide table is not a prefix of a 384-wide one, and Firefox ships both widths (ADR 0020).
+
+The rule is enforced structurally rather than by review: derived regions are carved by `model/layout.zig` into the slot, so there is no shared region for them to be written to, and `runtime.buildCtx` asserts the view it hands a pass lies inside that pass's own slot.
+
+Deciding which kind a new region is: *if two loaded models would write different bytes into it, it is derived.* Scratch does not care which model wrote last, because the next pass overwrites it before reading.
+
 ### 4.2 Regions
 
 | Region | Size |
@@ -111,6 +124,7 @@ A pivot is two sequential passes. Pass one completes before pass two starts, so 
 | `shortlist_rows` | `max_shortlist · max(d_model) · 1` |
 | `shortlist_ids`, `logits` | `max_shortlist · 4` each |
 | `sent_spans` | `(max_src_bytes / 2 + 2) · 8` — a sentence needs at least a terminator and a separator |
+| `pos_enc` | **not here.** Carved in the slot, `max(max_src_tokens, max_tgt_tokens) · d_model · 4` per loaded model — it is derived from that model's `d_model` (§4.1, ADR 0020). |
 | `tok_raw`, `tok_norm` | `max_src_bytes + 8` each — the `nmt_nfkc` rewrite runs into `tok_raw`, whitespace handling then moves it into `tok_norm`. Two buffers because the rewrite can grow the text and the whitespace pass prepends a marker (ADR 0017). |
 | `tok_lattice` | `max_src_bytes · sizeof(LatticeNode)` |
 | `io_src` | `max_src_bytes` |
@@ -127,6 +141,17 @@ Bergamot-student hyperparameters (`d_model=256`, `ffn=1536`, `n_enc=6`, `n_dec=2
 | Shared scratch | 6.74 MB, measured |
 | Weights, per direction (int8, ~17M params) | 19.01 MB measured, including vocabulary and shortlist |
 | Two directions resident (pivot pair) | ≈ 45 MB total |
+
+A pivot between two `d=384` directions is the expensive case and it is real — 23 of the 105 pairs Firefox ships are that width, so a non-English pivot has a good chance of crossing two of them:
+
+| | |
+|---|---|
+| Weights, `d=384` direction | 33.3 MB |
+| Two resident | 66.6 MB |
+| Shared scratch at `d=384` | ~9 MB |
+| **Total before the host's own allocations** | **≈ 76 MB** |
+
+Whether a phone tolerates that is not answerable from a desktop, which is what SPEC §13 T5 and the Pages harness exist to settle.
 
 ---
 
@@ -354,7 +379,7 @@ nothing can fail is decoration, not a tripwire.
 | Warm p99, 120-token message, direct | ≤ 200 ms | 130 |
 | Warm p50, 8-sentence paragraph | ≤ 100 ms | 64.8 |
 | Shared scratch | ≤ 10 MB | 6.76 |
-| Weights, per direction | ≤ 20 MB | 19.00 |
+| Weights, per direction | ≤ 35 MB | 19.23 (d=256), 33.3 (d=384) |
 
 The paragraph row is new: segmentation (ADR 0011) added per-sentence work that
 the pre-segmentation numbers never saw.
