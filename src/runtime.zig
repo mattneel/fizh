@@ -13,7 +13,8 @@ pub const abi = @import("abi.zig");
 pub const format = @import("model/format.zig");
 pub const kernel = @import("kernel/backend.zig");
 
-const arena_mod = @import("arena.zig");
+pub const arena = @import("arena.zig");
+const arena_mod = arena;
 pub const encoder = @import("graph/encoder.zig");
 
 const pass = @import("graph/pass.zig");

@@ -17,6 +17,10 @@ const unigram = @import("tok/unigram.zig");
 
 pub const alignment: u32 = 64;
 
+/// How much longer than its source a pass is allowed to make the text. SPEC
+/// §4.2. See the `io_dst` sizing below for why this is not 1.
+pub const io_expansion: u32 = 2;
+
 /// A half-open byte range within the arena. Offsets, never pointers: a region
 /// descriptor must survive being copied around without carrying provenance.
 pub const Region = extern struct {
@@ -126,9 +130,15 @@ pub const Layout = struct {
         // cannot contain more than half its bytes in sentences.
         layout.sent_spans = c.take((src_bytes / 2 + 2) * @sizeOf(ssplit.Span));
         layout.tok_lattice = c.take((src_bytes + norm_slack + 1) * @sizeOf(unigram.LatticeNode));
+        // Output is not bounded by input. German compounds and English article
+        // expansion both routinely exceed the source, and a pivot's English
+        // waypoint can exceed both endpoints. Sizing the destination at
+        // `max_src_bytes` made a *correct* translation of a full-length source
+        // fail with `out_too_small`. Two is the room, not a guarantee: past it
+        // the pass still returns `out_too_small` rather than truncating.
         layout.io_src = c.take(src_bytes);
-        layout.io_pivot = c.take(src_bytes);
-        layout.io_dst = c.take(src_bytes);
+        layout.io_pivot = c.take(src_bytes * io_expansion);
+        layout.io_dst = c.take(src_bytes * io_expansion);
 
         if (c.cursor > std.math.maxInt(u32)) return null;
         layout.total = @intCast(c.cursor);

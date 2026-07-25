@@ -189,19 +189,32 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(bench);
 
-    const bench_model = "zig-out/bench.fzm";
+    // A synthetic artifact has random weights, so it never emits `</s>`: every
+    // sentence runs to the step limit and the §14 timings measure the bound
+    // rather than the workload. Prefer a real model whenever one has been
+    // fetched; fall back to the synthetic one only so `zig build bench` works
+    // in a bare checkout, and say so in the step name. ADR 0016.
+    const synth_model = "zig-out/bench.fzm";
     const build_bench_model = b.addSystemCommand(&.{
-        "python3", "tools/convert.py", "--selftest", "--big", bench_model,
+        "python3", "tools/convert.py", "--selftest", "--big", synth_model,
     });
     build_bench_model.has_side_effects = true;
+
+    const real_model = "zig-out/esen.fzm";
+    const have_real = if (b.build_root.handle.access(b.graph.io, real_model, .{})) |_| true else |_| false;
+    const bench_model = if (have_real) real_model else synth_model;
 
     const run_bench = b.addRunArtifact(bench);
     run_bench.addArg(bench_model);
     if (b.args) |extra| run_bench.addArgs(extra);
     run_bench.has_side_effects = true;
-    run_bench.step.dependOn(&build_bench_model.step);
 
-    const bench_step = b.step("bench", "SPEC §14 budgets against a §4.3-scale artifact");
+    if (!have_real) run_bench.step.dependOn(&build_bench_model.step);
+
+    const bench_step = b.step("bench", if (have_real)
+        "SPEC §14 budgets against a real Bergamot artifact"
+    else
+        "SPEC §14 budgets against a synthetic artifact (run tools/fetch-model.sh for real timings)");
     bench_step.dependOn(&run_bench.step);
 
     // SPEC §3: "Measure the ReleaseFast delta at M7; the number goes in an ADR
@@ -225,7 +238,7 @@ pub fn build(b: *std.Build) void {
     const run_bench_fast = b.addRunArtifact(bench_fast);
     run_bench_fast.addArg(bench_model);
     run_bench_fast.has_side_effects = true;
-    run_bench_fast.step.dependOn(&build_bench_model.step);
+    if (!have_real) run_bench_fast.step.dependOn(&build_bench_model.step);
 
     const bench_fast_step = b.step("bench-fast", "The same benchmark in ReleaseFast, for the SPEC §3 delta");
     bench_fast_step.dependOn(&run_bench_fast.step);

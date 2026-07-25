@@ -87,7 +87,7 @@ pub fn main(init: std.process.Init) !void {
     const short = try message(arena, 12);
     const long = try message(arena, 120);
     const para = try paragraph(arena, 8);
-    const out_buf = try gpa.alloc(u8, 1 << 16);
+    const out_buf = try gpa.alloc(u8, cfg.max_src_bytes * fizh.arena.io_expansion);
     defer gpa.free(out_buf);
 
     const short_ns = try timeMany(gpa, io, handle, short, out_buf);
