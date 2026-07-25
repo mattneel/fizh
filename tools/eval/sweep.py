@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -75,7 +76,12 @@ def fetch(pair, raw: Path, base: str, records) -> dict:
     models = [r for r in recs if r["fileType"] == "model"]
     if not models:
         return {"error": "no model attachment"}
-    model = min(models, key=lambda r: r["attachment"]["size"])
+    # See tools/fetch-model.sh for why pre-releases are skipped: they are often
+    # smaller than the release they preceded, so smallest-first selects them,
+    # and they are not the artifact Firefox ships.
+    released = [r for r in models
+                if not re.search(r"[a-zA-Z]", str(r.get("version", "")))] or models
+    model = min(released, key=lambda r: r["attachment"]["size"])
     version = model.get("version")
     raw.mkdir(parents=True, exist_ok=True)
     got = {}

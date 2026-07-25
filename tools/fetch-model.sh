@@ -24,17 +24,29 @@ curl -sS "https://firefox.settings.services.mozilla.com/v1/buckets/main/collecti
   > "$RAW/records.json"
 
 python3 - "$RAW" "$BASE" "$SRC" "$TGT" <<'PY'
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 raw, base, src, tgt = sys.argv[1:5]
 recs = [r for r in json.load(open(f"{raw}/records.json"))["data"]
         if r.get("fromLang") == src and r.get("toLang") == tgt]
 if not recs:
     raise SystemExit(f"no {src}->{tgt} records; pick another pair")
 
-# Several versions coexist. Take the smallest model — that is the "tiny"
-# student architecture fizh implements (SPEC §4.3).
+# Several versions coexist, and they are not interchangeable. Two filters,
+# in order:
+#
+#   1. Skip pre-releases. Version strings like "1.0a1" are alpha artifacts that
+#      sit next to the "1.0" they preceded, and Firefox does not ship them.
+#      They are often a few hundred bytes *smaller* than the release, so a
+#      smallest-first rule selects them for 21 of the 105 pairs -- and cs-en
+#      v1.0a1 translates to fluent nonsense through fizh where v1.0 is correct.
+#   2. Then take the smallest, which is the "tiny" student architecture fizh
+#      implements (SPEC §4.3) rather than the "base" model beside it.
+def stable(r):
+    return not re.search(r"[a-zA-Z]", str(r.get("version", "")))
+
 models = [r for r in recs if r["fileType"] == "model"]
-model = min(models, key=lambda r: r["attachment"]["size"])
+released = [r for r in models if stable(r)] or models
+model = min(released, key=lambda r: r["attachment"]["size"])
 version = model.get("version")
 print(f"  {src}->{tgt} version {version}, model {model['attachment']['size']} bytes")
 
