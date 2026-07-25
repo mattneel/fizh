@@ -56,6 +56,24 @@ v2.0 is over the §14 weights budget, so the selection policy stays and these
 four are named here rather than averaged into the median. Point
 `tools/bergamot.py` at the newer model directly if you want it.
 
+## Pivot coverage
+
+Non-English pairs route through English: two slots resident, two sequential
+passes, one shared scratch arena. Verified across widths, which is where the
+one runtime defect in this sweep lived (ADR 0019):
+
+| route | widths | |
+|---|---|---|
+| es→en→de | 256 → 256 | `Die schwarze Katze schläft auf dem Tisch.` |
+| ar→en→sk | 384 → 384 | `Teraz máme 4-mesačné potkany, ktoré predtým mali cukrovku…` |
+| cs→en→ru | 256 → **384** | `«Теперь у нас есть четырёхмесячные мыши без диабета…` |
+| be→en→lv | 256 → **384** | `Tagad mums ir 4 mēnešus vecas bezdiabēta peles…` |
+
+The mixed-width rows are the ones that mattered: a shared `pos_enc` table
+filled at load time meant the narrower model read encodings laid out for the
+wider one. `route 2 (pivot)` resolves in every case and the double-pivot
+assertion holds.
+
 ## Full matrix
 
 | pair | arch | fizh | bergamot | delta | identical | MiB |
