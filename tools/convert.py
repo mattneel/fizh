@@ -229,6 +229,11 @@ class Artifact:
             at = HEADER_BYTES + i * DESC_BYTES
             body[at : at + DESC_BYTES] = d
 
+        # A clean checkout has no zig-out/. `zig build` creates it for its own
+        # outputs, but the converter runs as a build *step* whose working
+        # directory may predate that, so it makes its own parent. CI on a fresh
+        # runner is what found this; a developer tree always already has one.
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(bytes(body))
         return len(body)
 
