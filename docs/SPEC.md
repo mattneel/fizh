@@ -4,7 +4,7 @@ Babel fish in Zig. On-device neural machine translation for a direct messaging a
 
 Text in, language code in, translated text out. Nothing else.
 
-Zig 0.16, `wasm32-freestanding`, SIMD128. Status: **pre-M0.**
+Zig 0.16, `wasm32-freestanding`, SIMD128. Status: **M0–M8 complete and translating real Mozilla Bergamot models.** `tools/fetch-model.sh es en` downloads and converts one; `zig build ci` is green.
 
 ### Conventions
 
@@ -21,7 +21,9 @@ Lowercase everywhere. Not an acronym.
 
 ## 1. Scope
 
-**In:** artifact loading, tokenization, quantized seq2seq inference, greedy decode, route resolution and English pivoting, a C ABI.
+**In:** artifact loading, **sentence segmentation**, tokenization, quantized seq2seq inference, greedy decode, route resolution and English pivoting, a C ABI.
+
+Segmentation is not optional. Bergamot's models are trained on single sentences and stop at the end of one; handing them a paragraph returns its first sentence and silently discards the rest, measured at −24 chrF++ (ADR 0011).
 
 **Out:** training, quantization research, language identification (host's job — CLD2 or the browser's detector), the messaging app, transport, crypto, WebGPU (v2).
 
@@ -98,12 +100,13 @@ A pivot is two sequential passes. Pass one completes before pass two starts, so 
 |---|---|
 | `weights[slot]` | from artifact header, one per loaded direction |
 | `xattn_kv` | `2 · max(n_dec_layers) · max_src_tokens · max(d_model) · 4` |
-| `self_kv` | `2 · max(n_dec_layers) · max_tgt_tokens · max(d_model) · 4` |
+| `ssru_state` | `max(n_dec_layers) · max(d_model) · 4` — the decoder is an SSRU, so its whole recurrent state is one vector per layer (ADR 0008). This replaced a `self_kv` cache of `2 · n_dec · max_tgt · d_model · 4`; at the §4.3 configuration that is 2 KB where the cache was 1.5 MB. |
 | `enc_states` | `max_src_tokens · max(d_model) · 4` |
 | `act_a`, `act_b` | `max_src_tokens · max(ffn_dim) · 4` each |
 | `qact` | same element count as `act_a`, 1 byte each |
 | `shortlist_rows` | `max_shortlist · max(d_model) · 1` |
 | `shortlist_ids`, `logits` | `max_shortlist · 4` each |
+| `sent_spans` | `(max_src_bytes / 2 + 2) · 8` — a sentence needs at least a terminator and a separator |
 | `tok_lattice` | `max_src_bytes · sizeof(LatticeNode)` |
 | `io_src`, `io_pivot`, `io_dst` | `max_src_bytes` each |
 
@@ -113,9 +116,9 @@ Bergamot-student hyperparameters (`d_model=256`, `ffn=1536`, `n_enc=6`, `n_dec=2
 
 | | |
 |---|---|
-| Shared scratch | ≈ 6.6 MB |
-| Weights, per direction (int8, ~17M params) | ≈ 17 MB |
-| Two directions resident (pivot pair) | ≈ 40 MB total |
+| Shared scratch | 6.74 MB, measured |
+| Weights, per direction (int8, ~17M params) | 19.01 MB measured, including vocabulary and shortlist |
+| Two directions resident (pivot pair) | ≈ 45 MB total |
 
 ---
 
@@ -135,6 +138,7 @@ src/
     format.zig        artifact parsing — THE validation boundary (§11)
     repack.zig        canonical -> SIMD128 layout
   tok/
+    ssplit.zig        sentence segmentation, Moses rules (ADR 0011)
     unigram.zig       Viterbi over the lattice, iterative
     trie.zig
   kernel/
@@ -188,7 +192,11 @@ const TensorDesc = extern struct {
 - One direction per file. Vocabulary and shortlist ship as tensors with reserved name hashes — one download per direction.
 - Lookup by `name_hash` against a comptime perfect hash. A missing required tensor is a load *error*, not an assertion.
 
-`tools/convert.py` reads Marian `.intgemm.alphas.bin` plus its `.spm` vocab and `lex.*.s2t.bin` shortlist and emits one `.fzm`. **M2 task: confirm whether Marian's on-disk int8 layout is already register-tiled for intgemm and unshuffle to canonical if so.**
+`tools/bergamot.py` reads Marian `.intgemm.alphas.bin` plus its `.spm` vocab and `lex.*.s2t.bin` shortlist and emits one `.fzm`. `tools/fetch-model.sh <src> <tgt>` does the download and the conversion in one step.
+
+**M2 task — answered (ADR 0009). The on-disk int8 is *not* register-tiled.** Type `0x4101` is Marian's `intgemm8`, "quantized (not packed)", architecture-agnostic; tiling happens at load on the target CPU. It *is* already stored `[out][in]`, which is this format's canonical order, so the conversion is a reshape and not a transpose. Doing both collapses the encoder to a single vector by layer six, silently.
+
+Special-token ids are read from the vocabulary, never assumed: `es-en` has `</s>`=0, `en-de` has `</s>`=2 (ADR 0010).
 
 ---
 
@@ -196,8 +204,8 @@ const TensorDesc = extern struct {
 
 Artifact ABI. Specified before any kernel is written.
 
-- **Weights:** symmetric, no zero point, per-output-channel `f32` scale, values in `[-127, 127]`. `assert(w != -128)` is a real assertion in the load path — see I5.
-- **Activations:** dynamic per-row absmax → `i8` in `[-127, 127]`, `f32` scale, computed at runtime.
+- **Weights:** symmetric, no zero point, per-output-channel `f32` scale, values in `[-127, 127]`. `assert(w != -128)` is a real assertion in the load path — see I5. Marian ships one scale per *tensor*; the converter broadcasts it across the channels, so no weight is ever requantized. Measured: 0 of 16,842,753 int8 weights in the real `es-en` model are `-128`.
+- **Activations:** dynamic per-row absmax → `i8` in `[-127, 127]`, `f32` scale, computed at runtime. Bergamot artifacts also ship 54 *static* per-tensor activation multipliers (the `.alphas.` in the filename); fizh ignores them. Dynamic absmax is at least as accurate, but it means fizh's output is not bit-identical to bergamot-translator's.
 - **Accumulate in `i32`.** Never `f32` accumulation of integer products.
 - **Dequant** is one multiply at the end of the reduction: `@floatFromInt(acc) * (act_scale * w_scale)`.
 
@@ -214,8 +222,8 @@ Every op gets a `ref/` implementation first (I2); `simd128/` and `relaxed/` are 
 | `qgemm_i8` | M×K×N, M = src_len — encoder workhorse |
 | `qgemv_i8` | 1×K×N — decoder workhorse |
 | `attn_prefill` | batched, bidirectional |
-| `attn_decode` | batch 1, append to `self_kv`, attend over prefix |
-| `xattn_decode` | batch 1, reads precomputed `xattn_kv` |
+| `ssru_step` | batch 1, two `qgemv_i8` and a pointwise gate over one `d_model` cell (ADR 0008). Constant work per token, where attention over a prefix is linear in it. |
+| `xattn_decode` | batch 1, reads precomputed `xattn_kv`. The only attention left in the decode loop. |
 | `softmax` | row-wise, max-subtract, fixed order |
 | `activation` | elementwise |
 | `residual_add` | elementwise |
@@ -292,7 +300,8 @@ Enforced in CI where mechanically checkable.
 7. **Explicitly sized types.** `u32`, `i32`, `f32`. `usize` never crosses the ABI or the artifact format.
 8. **Functions ≤ 70 lines.**
 9. **Assertions ship** (§3).
-10. **Zero allocation in the decode loop** is separately tested: a step counter asserts the arena high-water mark is unchanged across a decode step.
+10. **Assert on the shape of the representation, not only the numbers in it.** Every rule above checks magnitude, and layer norm satisfies all of them under total representational collapse — a wrong weight layout drove mean pairwise cosine between encoder positions to 0.9996 with every assertion passing. `graph/encoder.zig` asserts the encoder's positions stay distinct — on the *mean* pairwise cosine, because the max reaches 0.99 in a healthy encoder and discriminates nothing. Sample rather than sweep: a bounded number of pairs is `O(d_model)` and free.
+11. **Zero allocation in the decode loop** is separately tested: a step counter asserts the arena high-water mark is unchanged across a decode step.
 
 ---
 
@@ -311,7 +320,7 @@ Enforced in CI where mechanically checkable.
 
 **T3 targets:** tokenizer against arbitrary bytes (never trap, round-trip within vocab), `format.zig` against corrupted and truncated blobs (return a status, never trap).
 
-**T4 uses two corpora, reported separately, never averaged.** A FLORES subset for comparability, and a chat-register set: short messages, emoji, code-switching, typos, missing punctuation. A model that gains on FLORES and loses on chat register is a regression. Pivot pairs are evaluated end-to-end, not per-hop.
+**T4 uses three corpora, reported separately, never averaged.** A FLORES subset for comparability, a **multi-sentence** set — FLORES is one sentence per line and structurally cannot measure segmentation, which hid a 24-point defect behind a parity result (ADR 0011) — and a chat-register set: short messages, emoji, code-switching, typos, missing punctuation. A model that gains on FLORES and loses on chat register is a regression. Pivot pairs are evaluated end-to-end, not per-hop.
 
 ---
 
@@ -341,7 +350,7 @@ p50 and p99 are separate budgets, never a mean. p99 is a long message on the slo
 | M2 | `tools/convert.py`, `.fzm` format, loader, validation boundary, repack. Golden load test. |
 | M3 | `kernel/ref/` — scalar f32, slow, correct. **T1 harness lands here.** |
 | M4 | Encoder matching the oracle within epsilon. |
-| M5 | Decoder, KV cache, shortlist, greedy decode. First end-to-end translation, one direction. |
+| M5 | Decoder (SSRU), cross-attention KV, shortlist, greedy decode. First end-to-end translation, one direction. |
 | M6 | `simd128/` int8 path. |
 | M7 | `relaxed/` variant, host feature detection, `ReleaseFast` measurement. |
 | M8 | Routing + pivot. Perf harness, chat-register eval, §14 enforcement. |
@@ -352,4 +361,4 @@ M3 before M4 is not negotiable. Correct first, with the oracle in place before t
 
 ## 16. Deferred to v2
 
-WebGPU backend (behind the §8 op seam). Threads (`+atomics` needs COOP/COEP on the PWA; near-zero gain on batch-1 decode). int8 KV cache. Neither blocks anything above.
+WebGPU backend (behind the §8 op seam). Threads (`+atomics` needs COOP/COEP on the PWA; near-zero gain on batch-1 decode). int8 cross-attention KV — the self-attention cache this once targeted no longer exists (ADR 0008), so the remaining prize is the 1 MB `xattn_kv` rather than the 2.5 MB implied here. None of it blocks anything above.
