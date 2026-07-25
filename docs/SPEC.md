@@ -4,7 +4,9 @@ Babel fish in Zig. On-device neural machine translation for a direct messaging a
 
 Text in, language code in, translated text out. Nothing else.
 
-Zig 0.16, `wasm32-freestanding`, SIMD128. Status: **M0–M8 complete and translating real Mozilla Bergamot models.** `tools/fetch-model.sh es en` downloads and converts one; `zig build ci` is green.
+Zig 0.16, `wasm32-freestanding`, SIMD128. Status: **M0–M8 complete and translating real Mozilla Bergamot models, at parity with `bergamot-translator`.** `tools/fetch-model.sh es en` downloads and converts one; `zig build ci` is green.
+
+On 500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000 resamples: es→en −0.08 [−0.37, +0.20], en→de −0.33 [−0.74, +0.03], es→de end to end −0.23 [−0.57, +0.10]. Every interval covers zero. See ADR 0015 for how the last 1.5 points were found.
 
 ### Conventions
 
@@ -108,7 +110,8 @@ A pivot is two sequential passes. Pass one completes before pass two starts, so 
 | `shortlist_ids`, `logits` | `max_shortlist · 4` each |
 | `sent_spans` | `(max_src_bytes / 2 + 2) · 8` — a sentence needs at least a terminator and a separator |
 | `tok_lattice` | `max_src_bytes · sizeof(LatticeNode)` |
-| `io_src`, `io_pivot`, `io_dst` | `max_src_bytes` each |
+| `io_src` | `max_src_bytes` |
+| `io_pivot`, `io_dst` | `2 · max_src_bytes` each — output is not bounded by input. German compounding and English article expansion both exceed the source routinely, and a pivot's English waypoint can exceed both endpoints. Past the factor the pass returns `out_too_small`; it never truncates. |
 
 ### 4.3 Worked example
 
@@ -217,7 +220,7 @@ Every op gets a `ref/` implementation first (I2); `simd128/` and `relaxed/` are 
 
 | Op | Regime |
 |---|---|
-| `embed_gather` | random access, dequant on gather |
+| `embed_gather` | random access, dequant on gather. **Step 0 of decode gathers nothing:** Marian shifts the target embeddings right by one with a zero fill, so the first decoder input is the positional encoding alone (ADR 0015). `bos_id` is header metadata; nothing seeds the loop with it. |
 | `layer_norm` | row-wise, fixed reduction order |
 | `qgemm_i8` | M×K×N, M = src_len — encoder workhorse |
 | `qgemv_i8` | 1×K×N — decoder workhorse |
@@ -319,6 +322,8 @@ Enforced in CI where mechanically checkable.
 **T1 is why I2 exists.** A jump in per-tensor error at layer N localizes a transposed stride in minutes rather than days. Build it at M3 while there is exactly one backend and it is nearly free.
 
 **T3 targets:** tokenizer against arbitrary bytes (never trap, round-trip within vocab), `format.zig` against corrupted and truncated blobs (return a status, never trap).
+
+**A T4 delta without a confidence interval is not a measurement.** Report deltas against a reference engine on identical input, never absolute scores across differing input, and run a paired bootstrap (`tools/eval/bootstrap.py`) before treating a gap as real — a −0.42 that straddles zero is the corpus, and hunting a cause for it is hunting noise. When a gap *is* real, `tools/eval/divergence.py` locates it: a per-token hazard that is flat across position is compounding arithmetic, and one that clusters early is a defect at the start of decode (ADR 0015).
 
 **T4 uses three corpora, reported separately, never averaged.** A FLORES subset for comparability, a **multi-sentence** set — FLORES is one sentence per line and structurally cannot measure segmentation, which hid a 24-point defect behind a parity result (ADR 0011) — and a chat-register set: short messages, emoji, code-switching, typos, missing punctuation. A model that gains on FLORES and loses on chat register is a regression. Pivot pairs are evaluated end-to-end, not per-hop.
 
