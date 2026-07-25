@@ -25,7 +25,7 @@ Lowercase everywhere. Not an acronym.
 
 Segmentation is not optional. Bergamot's models are trained on single sentences and stop at the end of one; handing them a paragraph returns its first sentence and silently discards the rest, measured at −24 chrF++ (ADR 0011).
 
-**Out:** training, quantization research, language identification (host's job — CLD2 or the browser's detector), the messaging app, transport, crypto, WebGPU (v2).
+**Out:** training, quantization research, language identification (host's job — CLD2 or the browser's detector), the messaging app, transport, crypto. **WebGPU is out entirely** — not deferred (ADR 0014).
 
 The host never sees a tensor. The runtime never sees a socket.
 
@@ -41,7 +41,7 @@ Decided. Changing one needs an ADR in `docs/adr/`.
 | I2 | A scalar `f32` reference implementation lives in-repo, in Zig, forever | In-process differential testing with no FFI. It is the only thing that makes hand-written SIMD debuggable. |
 | I3 | Zero heap allocation. `std.mem.Allocator` does not appear in `src/` | Every shape is known at init. |
 | I4 | int8 only. No int4, no mixed precision | At ~17M parameters the decoder is ~3 MB; there is no bandwidth problem to solve. |
-| I5 | Weights clamp to `[-127, 127]` | One line in the converter, keeps the artifact valid for a future WGSL backend without requantizing. |
+| I5 | Weights clamp to `[-127, 127]` | Symmetric int8 has no positive counterpart to `-128`. One line in the converter, and the real Bergamot weights already satisfy it: 0 of 16,842,753. (This once cited a future WGSL backend; ADR 0014 deleted that backend, the clamp stays on its own merit.) |
 | I6 | Shortlisted output projection, always | Bergamot ships the shortlists. Full-vocab projection is the single largest per-token cost. |
 | I7 | Greedy decode, beam width 1 | What Bergamot ships. Removes a KV dimension and a whole scratch region. |
 | I8 | Pivoting is internal | The host asks for `es → de` and gets German. Model topology does not leak into the PWA. |
@@ -205,7 +205,7 @@ Special-token ids are read from the vocabulary, never assumed: `es-en` has `</s>
 Artifact ABI. Specified before any kernel is written.
 
 - **Weights:** symmetric, no zero point, per-output-channel `f32` scale, values in `[-127, 127]`. `assert(w != -128)` is a real assertion in the load path — see I5. Marian ships one scale per *tensor*; the converter broadcasts it across the channels, so no weight is ever requantized. Measured: 0 of 16,842,753 int8 weights in the real `es-en` model are `-128`.
-- **Activations:** dynamic per-row absmax → `i8` in `[-127, 127]`, `f32` scale, computed at runtime. Bergamot artifacts also ship 54 *static* per-tensor activation multipliers (the `.alphas.` in the filename); fizh ignores them. Dynamic absmax is at least as accurate, but it means fizh's output is not bit-identical to bergamot-translator's.
+- **Activations:** dynamic per-row absmax → `i8` in `[-127, 127]`, `f32` scale, computed at runtime. Bergamot artifacts also ship 53 *static* per-matmul activation multipliers (the `.alphas.` in the filename). **Both paths are implemented and the choice was measured** (ADR 0012): on 500 FLORES segments the byte-identical rate against bergamot-translator differs by ±2 segments in opposite directions between them, and chrF++ by under 0.1. Dynamic stays, and `--activation-quant static` keeps the alternative available for re-testing on a future model.
 - **Accumulate in `i32`.** Never `f32` accumulation of integer products.
 - **Dequant** is one multiply at the end of the reduction: `@floatFromInt(acc) * (act_scale * w_scale)`.
 
@@ -328,14 +328,26 @@ Enforced in CI where mechanically checkable.
 
 Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded, Chrome stable. Pin one physical unit; CI numbers are for trend detection only.
 
-| Metric | Budget |
-|---|---|
-| Cold start: instantiate + load + repack, one direction | ≤ 300 ms |
-| Warm p50, 12-token message, **direct** | ≤ 80 ms |
-| Warm p50, 12-token message, **pivot** | ≤ 160 ms |
-| Warm p99, 120-token message, direct | ≤ 800 ms |
-| Shared scratch | ≤ 16 MB |
-| Weights, per direction | ≤ 20 MB |
+Every number in this table is currently a **desktop proxy**. T5 has never run on
+the pinned device; `zig build bench` says so in its own output rather than
+letting the omission be implied.
+
+Budgets are ~1.5× measured, deliberately. The original set was sized for a 600M
+model and left 4–45× of headroom, which cannot catch a 3× regression — a budget
+nothing can fail is decoration, not a tripwire.
+
+| Metric | Budget | Measured (desktop) |
+|---|---|---|
+| Cold start: instantiate + load + repack, one direction | ≤ 10 ms | 5.8 |
+| Warm p50, 12-token message, **direct** | ≤ 22 ms | 14.8 |
+| Warm p50, 12-token message, **pivot** | ≤ 44 ms | — |
+| Warm p99, 120-token message, direct | ≤ 200 ms | 130 |
+| Warm p50, 8-sentence paragraph | ≤ 100 ms | 64.8 |
+| Shared scratch | ≤ 10 MB | 6.76 |
+| Weights, per direction | ≤ 20 MB | 19.00 |
+
+The paragraph row is new: segmentation (ADR 0011) added per-sentence work that
+the pre-segmentation numbers never saw.
 
 p50 and p99 are separate budgets, never a mean. p99 is a long message on the slowest supported device and it decides whether the UI feels broken.
 
@@ -361,4 +373,4 @@ M3 before M4 is not negotiable. Correct first, with the oracle in place before t
 
 ## 16. Deferred to v2
 
-WebGPU backend (behind the §8 op seam). Threads (`+atomics` needs COOP/COEP on the PWA; near-zero gain on batch-1 decode). int8 cross-attention KV — the self-attention cache this once targeted no longer exists (ADR 0008), so the remaining prize is the 1 MB `xattn_kv` rather than the 2.5 MB implied here. None of it blocks anything above.
+Threads (`+atomics` needs COOP/COEP on the PWA; near-zero gain on batch-1 decode). int8 cross-attention KV — the self-attention cache this once targeted no longer exists (ADR 0008), so the remaining prize is the 1 MB `xattn_kv` rather than the 2.5 MB implied here. None of it blocks anything above.

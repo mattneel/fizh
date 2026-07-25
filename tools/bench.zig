@@ -17,13 +17,18 @@ const Io = std.Io;
 const fizh = @import("fizh");
 const abi = fizh.abi;
 
-/// SPEC §14.
+/// SPEC §14, retightened to ~1.5x measured. The original numbers were sized for
+/// a 600M-parameter model and left 4-45x of headroom, which cannot catch a 3x
+/// regression — a budget nothing can fail is decoration.
 const Budget = struct {
-    cold_start_ms: f64 = 300,
-    warm_p50_direct_ms: f64 = 80,
-    warm_p50_pivot_ms: f64 = 160,
-    warm_p99_long_ms: f64 = 800,
-    scratch_bytes: u64 = 16 << 20,
+    cold_start_ms: f64 = 10,
+    warm_p50_direct_ms: f64 = 22,
+    warm_p50_pivot_ms: f64 = 44,
+    warm_p99_long_ms: f64 = 200,
+    /// Multi-sentence input: segmentation added per-sentence work the old
+    /// numbers never saw.
+    warm_p50_paragraph_ms: f64 = 100,
+    scratch_bytes: u64 = 10 << 20,
     weights_bytes: u64 = 20 << 20,
 };
 
@@ -81,6 +86,7 @@ pub fn main(init: std.process.Init) !void {
     // -- warm timings -------------------------------------------------------
     const short = try message(arena, 12);
     const long = try message(arena, 120);
+    const para = try paragraph(arena, 8);
     const out_buf = try gpa.alloc(u8, 1 << 16);
     defer gpa.free(out_buf);
 
@@ -88,6 +94,8 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(short_ns);
     const long_ns = try timeMany(gpa, io, handle, long, out_buf);
     defer gpa.free(long_ns);
+    const para_ns = try timeMany(gpa, io, handle, para, out_buf);
+    defer gpa.free(para_ns);
 
     const b: Budget = .{};
     var failed: u32 = 0;
@@ -97,6 +105,9 @@ pub fn main(init: std.process.Init) !void {
         fizh.kernel.active.name,
         @tagName(@import("builtin").mode),
     });
+    try out.print("  SPEC §14 budgets. Every number below is a DESKTOP PROXY:\n", .{});
+    try out.print("  T5 has not run on the pinned reference device (§14 names a\n", .{});
+    try out.print("  2022-class mid-tier Android). Trend detection only.\n\n", .{});
     try out.print("  {s:<34} {s:>12} {s:>12}\n", .{ "metric", "measured", "budget" });
     try out.print("  {s:-<34} {s:->12} {s:->12}\n", .{ "", "", "" });
 
@@ -105,6 +116,7 @@ pub fn main(init: std.process.Init) !void {
     failed += try row(out, "warm p99, 12-token, direct", ms(pct(short_ns, 99)), b.warm_p99_long_ms, "ms");
     failed += try row(out, "warm p50, 120-token, direct", ms(pct(long_ns, 50)), b.warm_p99_long_ms, "ms");
     failed += try row(out, "warm p99, 120-token, direct", ms(pct(long_ns, 99)), b.warm_p99_long_ms, "ms");
+    failed += try row(out, "warm p50, 8-sentence paragraph", ms(pct(para_ns, 50)), b.warm_p50_paragraph_ms, "ms");
     failed += try row(out, "shared scratch", mb(scratch), mb(b.scratch_bytes), "MB");
     failed += try row(out, "weights, per direction", mb(weights), mb(b.weights_bytes), "MB");
 
@@ -185,6 +197,17 @@ const clauses = [_][]const u8{
     "vamos a la playa si hace buen tiempo el domingo",
     "ella dijo que llegaria tarde a la reunion de hoy",
 };
+
+/// Multi-sentence input, which the pre-segmentation budgets never measured.
+fn paragraph(arena: std.mem.Allocator, sentences: u32) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (0..sentences) |i| {
+        if (i != 0) try out.append(arena, ' ');
+        try out.appendSlice(arena, clauses[i % clauses.len]);
+        try out.append(arena, '.');
+    }
+    return out.toOwnedSlice(arena);
+}
 
 fn message(arena: std.mem.Allocator, words: u32) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
