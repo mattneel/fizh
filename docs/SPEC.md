@@ -23,6 +23,8 @@ Lowercase everywhere. Not an acronym.
 
 ## 1. Scope
 
+**Invariant I1 is measured and holds** (ADR 0028): on ARM fizh is 1.44–1.71× faster than `bergamot-translator` per call and 1.80× faster per token, while being at parity on x86. That asymmetry — a portable `@Vector` kernel carrying its performance across architectures where a hand-tuned x86 one does not — is the reason this project exists.
+
 **In:** artifact loading, **sentence segmentation**, **`nmt_nfkc` normalization**, tokenization, quantized seq2seq inference, greedy decode, route resolution and English pivoting, a C ABI.
 
 Normalization is not reimplemented: the model's own `precompiled_charsmap` ships in the artifact and the runtime interprets it (ADR 0017). An NFKC implementation that is correct and disagrees with the model's table is worse than a table interpreter that agrees with it, because the model's segmentation was trained on the table.
@@ -433,7 +435,9 @@ Same page, same machine, same upstream weights, foreground (ADR 0027). Both engi
 | engine | **102 KiB** | 5,120 KiB |
 | peak linear memory | **86 MiB** | 522 MiB |
 
-Throughput ratio **1.021** — parity. What remains is ~10 ms of fixed per-call cost, which natively is 0.09 ms and is therefore wasm-specific. This is x86, where intgemm has AVX2 and VNNI paths ARM does not; **I1 is a claim about ARM and is still unmeasured.**
+Throughput ratio **1.021** — parity, on intgemm's home turf.
+
+**On ARM, fizh wins every case** (ADR 0028): 12-token steady 21.8 ms against 31.3, 120-token 197.8 against 339.0, cold start 52.0 against 266.5. Per-token throughput is 1.2200 ms/tok against 2.1986 — **fizh 1.80× faster**. bergamot is 1.64× slower per token on ARM than on x86; fizh is 0.89×. **Invariant I1 is measured and holds.** What remains is ~10 ms of fixed per-call cost, which natively is 0.09 ms and is therefore wasm-specific. This is x86, where intgemm has AVX2 and VNNI paths ARM does not; **I1 is a claim about ARM and is still unmeasured.**
 
 ### Desktop figures, which are not budgets
 

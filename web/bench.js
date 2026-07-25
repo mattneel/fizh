@@ -192,6 +192,22 @@ async function run() {
   const t0 = performance.now();
   const wantBerg = $("with-bergamot").checked;
 
+  // Warm the device before the first engine, or the first engine pays the DVFS
+  // ramp and the second does not. On the Android run fizh went first and showed
+  // a burst p50 of 32.2 ms against a steady 21.8, while bergamot -- second, on
+  // an already-warm CPU -- was flat at 31.0/31.3. That is a harness artifact,
+  // and it made the engine that ran first look worse (ADR 0028).
+  $("status").textContent = "warming the device…";
+  await new Promise((done) => {
+    const until = performance.now() + 3000;
+    (function spin() {
+      let x = 0;
+      for (let i = 0; i < 3e6; i++) x += Math.sqrt(i);
+      if (x < 0 || performance.now() >= until) done();
+      else setTimeout(spin, 0);
+    })();
+  });
+
   const engines = [];
   const failures = [];
   const attempt = async (label, fn) => {

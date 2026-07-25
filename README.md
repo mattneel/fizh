@@ -51,11 +51,37 @@ One caveat travels with the first run: its p99 came from 30 samples, where the
 99th percentile is the worst sample by definition. The harness now refuses to
 print a p99 below 300 runs.
 
-### Against bergamot, on one machine, same weights
+### On a phone, against bergamot — the measurement the project exists for
 
-`bergamot-translator`'s own wasm engine, run from the same page on the same
-device over the same corpus — Win64, Chrome 150, foreground. Both engines read
-the same upstream `es-en` model (fizh's `.fzm` is the converted container).
+Invariant I1 says fizh exists because Mozilla's engine is intgemm-based and
+x86-tuned while phones are ARM. Same page, same corpus, same upstream weights,
+both engines single-threaded, foreground. **Android 10, armv81, Chrome 150:**
+
+| | fizh | bergamot | |
+|---|---|---|---|
+| 12-token steady p50 | **21.8 ms** | 31.3 ms | fizh **1.44×** faster |
+| 120-token p50 | **197.8 ms** | 339.0 ms | fizh **1.71×** faster |
+| 8-sentence paragraph | **120.1 ms** | 146.7 ms | fizh **1.22×** faster |
+| cold start | **52.0 ms** | 266.5 ms | fizh **5.12×** faster |
+| engine size | **102 KiB** | 5,120 KiB | **50×** smaller |
+| peak linear memory | **86 MiB** | 522 MiB | **6.1×** less |
+
+fizh wins every case on the phone. And the asymmetry is the actual claim —
+per-token throughput on both machines:
+
+| | fizh | bergamot | |
+|---|---|---|---|
+| x86_64 | 1.3657 ms/tok | 1.3371 ms/tok | parity |
+| **aarch64** | **1.2200 ms/tok** | **2.1986 ms/tok** | fizh **1.80×** faster |
+
+bergamot is **1.64× slower per token on ARM than on x86**; fizh is **0.89×**,
+i.e. slightly faster there. A portable `@Vector` kernel carries its performance
+across architectures; a hand-tuned x86 kernel does not. ADR 0028.
+
+### Against bergamot on x86, same weights
+
+The same comparison on intgemm's home turf — Win64, Chrome 150, foreground —
+where I1 never claimed a win:
 
 | | fizh | bergamot | |
 |---|---|---|---|
