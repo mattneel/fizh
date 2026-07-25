@@ -1,6 +1,6 @@
 # ADR 0018 — The shortlist is not free, and the reference was not using one
 
-Status: open — cause identified as the candidate lists, mechanism not yet found
+Status: decided
 Date: 2026-07-25
 Milestone: M8 (calibration)
 
@@ -55,6 +55,44 @@ The absentees are mostly subword continuation pieces — `m`, `st`, `uf`, `lös`
 `od` — the fragments needed to spell a word the candidate set does not carry
 whole. German needs more of them, which is why es→en barely notices.
 
+## Resolved: it was the harness, not the candidate lists
+
+**The key was active.** Diffed rather than reasoned about: the same
+configuration run twice differs on 0 of 500 lines, and with-key against
+without-key differs on 6. Non-empty, so `shortlist:` is honoured.
+
+**fizh's candidate lists are exact.** The artifact's `sl.offsets` and per-source
+list lengths are byte-identical to `lex.50.50` — same 921,897 entries, same mean
+28.8, same max 50. Nothing is dropped in conversion.
+
+**Marian builds one shortlist per mini-batch, not per sentence.** The candidate
+set is the union over every source token in the batch, so batch size changes
+what the decoder can emit. The harness fed all 500 FLORES segments as a single
+batch, giving the reference a candidate set unioned over 16,000 source tokens
+where fizh builds one per sentence — because fizh translates one message at a
+time and has no batch to union over.
+
+Re-running the reference with `--per-line`, one sentence per batch, which is
+the only configuration comparable to fizh:
+
+| en→de reference | chrF++ | vs fizh | byte-identical | its tokens outside fizh's shortlist |
+|---|---|---|---|---|
+| batch = 500 sentences | 62.79 | −0.33 | 231/500 | 1.10% |
+| batch = 1 sentence | 62.62 | **−0.16** | **274/500** | **0.28%** |
+
+es→en moves 0.28% → 0.04% missing and 223 → 237 identical, on a delta already
+inside the noise.
+
+So most of the "+0.27 shortlist gap" was the harness comparing a per-sentence
+shortlist against a 500-sentence batch union. The ablation that produced it
+(`ablate_shortlist.py`, fizh-oracle against itself) was sound and is unchanged:
+fizh's own shortlist does cost it 0.27 against its own full-vocabulary
+projection. What was wrong was calling that a difference *from bergamot*.
+Bergamot pays the same tax at the same batch size.
+
+**The residual is 0.28% of tokens on en→de.** Not zero, and not worth chasing:
+the direction is −0.16 with an interval of [−0.47, +0.14].
+
 ## The thing found on the way, which is worse
 
 **`tools/eval/reference_engine.mjs` never enabled bergamot's shortlist.**
@@ -79,23 +117,36 @@ not being honoured the way Firefox's is. Marian parses `shortlist` as a vector
 whose later elements can override `firstNum` and `bestNum`, so a wrong form can
 silently produce a different set rather than an error.
 
-Resolving that is the next step and it is a prerequisite for the rest: until
-the reference is known to be running Firefox's configuration, "fizh's shortlist
-is lossier than bergamot's" is a hypothesis with one measurement behind it.
+That is now resolved — see above. The key is active, and the remaining
+difference was batch size rather than construction.
 
 ## Decision
 
-Nothing changes in the runtime yet. The candidate-set construction in
-`tools/bergamot.py` and `src/graph/shortlist.zig` is the suspect, and this
-records the evidence so the next pass starts from measurements rather than
-from the top.
+**Nothing changes in the runtime.** fizh's shortlist construction is exact
+against `lex.50.50`, and its per-sentence scope is correct for what fizh is: a
+library that translates one message at a time. A batch union is not available
+to it and would not be desirable — it would make one message's output depend on
+what else was in the buffer.
 
-The cheap mitigation, if it comes to that, is not a bigger shortlist: 8000
-frequent words cost seven times the projection and recovered two thirds of one
-percent. It is finding what bergamot puts in the set that fizh does not.
+`reference_engine.mjs` gains `--per-line`, and comparisons against the
+reference use it. Anything else measures the batch.
 
 ## Negative results, recorded so nobody re-runs them
 
-- The `max_shortlist` cap is not the cause. Binds 1.6%.
-- The frequent-word set is not the cause. 7x recovers a third.
-- es→en shortlist loss is negligible (+0.02) and needs no further work.
+- The `max_shortlist` cap is not the cause. Binds on 8 of 500 segments.
+- The frequent-word set is not the cause. 50 → 8000 costs seven times the
+  projection and recovers two thirds of one percent.
+- Adding the source token ids to the candidate set — the obvious guess for a
+  shared vocabulary, since the model can copy names and numbers through —
+  changes nothing. 0.95% before, 0.95% after, on both directions.
+- The converter is not dropping entries. Offsets and list lengths match the
+  lex file exactly.
+
+## The general lesson
+
+Both defects in this ADR are the same one: **a measurement harness is a
+configuration too, and an unaudited one is a source of findings that are about
+the harness.** The missing `shortlist:` key and the 500-sentence batch each
+produced a plausible, specific, wrong conclusion about fizh. The diff caught
+the first; only asking "what does the reference do that fizh structurally
+cannot" caught the second.

@@ -97,19 +97,23 @@ async function main() {
   const lines = readFileSync(0, "utf-8").split("\n");
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
 
-  // One batch: the engine sentence-splits internally, and feeding it line by
-  // line would change how it batches and therefore what it produces.
-  const input = new M.VectorString();
-  const options = new M.VectorResponseOptions();
-  for (const line of lines) {
-    input.push_back(line);
-    options.push_back({ qualityScores: false, alignment: false, html: false });
-  }
-
-  const responses = service.translate(model, input, options);
+  // Marian builds one lexical shortlist per *batch*, unioned over every source
+  // token in it, so batch size changes the candidate set and therefore the
+  // output. `--per-line` translates each line as its own batch, which is the
+  // only configuration comparable to fizh's per-sentence shortlist. ADR 0018.
+  const perLine = process.argv.includes("--per-line");
   const out = [];
-  for (let i = 0; i < responses.size(); i++) {
-    out.push(responses.get(i).getTranslatedText().replace(/\n/g, " "));
+  for (const group of perLine ? lines.map((l) => [l]) : [lines]) {
+    const input = new M.VectorString();
+    const options = new M.VectorResponseOptions();
+    for (const line of group) {
+      input.push_back(line);
+      options.push_back({ qualityScores: false, alignment: false, html: false });
+    }
+    const responses = service.translate(model, input, options);
+    for (let i = 0; i < responses.size(); i++) {
+      out.push(responses.get(i).getTranslatedText().replace(/\n/g, " "));
+    }
   }
   process.stdout.write(out.join("\n") + "\n");
 }
