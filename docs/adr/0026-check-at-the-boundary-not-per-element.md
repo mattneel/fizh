@@ -64,6 +64,40 @@ interior trusts it — extended from artifact bytes to array indices.
   carving are all still fully checked. A corrupt artifact still gets a status.
 - **The wasm budgets.** 33,180 bytes gzipped against 204,800; still 0 imports.
 
+## The gate this cost us
+
+`standardOptimizeOption` with a `preferred_optimize_mode` silently swallows
+`--release=fast`. The first ReleaseSafe/ReleaseFast comparison therefore
+returned *identical* numbers for both, which is a plausible result — "safety is
+free" — and was very nearly believed.
+
+That is the **fourth** measurement gate in this project to fail silently, each
+producing a plausible number rather than an error:
+
+| | ADR |
+|---|---|
+| a synthetic artifact with the wrong decoder architecture | 0008 |
+| a decode loop that terminated at step 0, so §14 timed nothing | 0016 |
+| a reference engine running with no shortlist | 0018 |
+| `--release=fast` swallowed, so ReleaseSafe reported itself as fast | this one |
+
+All four were detectable from inside the harness. So the rule, now in SPEC §13:
+**a benchmark asserts its own configuration, or it is not a measurement.**
+`zig build bench` and `zig build profile` read the optimize mode, backend, lane
+count and safety state *from the runtime module* and print them; `profile`
+takes `--expect-mode` and refuses to run on a mismatch.
+
+It earned itself immediately. Its first run reported "runtime safety on" for a
+build whose interiors were unchecked, because the detection asked
+`std.debug.runtime_safety` — which answers a different question, the build
+mode's. Zig cannot introspect `@setRuntimeSafety`, so the flag is now
+*declared* beside the calls that consume it and the two cannot drift. A gate
+that catches its own author's error on day one is the right kind of gate.
+
+It also surfaced that this machine has **64 integer lanes**, i.e. AVX-512, not
+the 32 an earlier probe reported — which silently changes what every native
+number on it means.
+
 ## The honest read on the 3x
 
 With this and the row blocking of the previous commit, fizh's x86 position is

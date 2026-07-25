@@ -26,6 +26,25 @@ const ref = @import("../ref/kernels.zig");
 const math = @import("../math.zig");
 
 pub const name = "vector";
+
+/// Integer lanes this target chose. Exposed so a benchmark can report the
+/// width it actually ran at rather than the one someone assumed.
+pub fn laneCount() usize {
+    return lanes;
+}
+
+/// Whether the hot loop interiors are compiled without runtime safety.
+///
+/// **Declared, not detected.** Zig offers no way to ask whether
+/// `@setRuntimeSafety` is active in a scope — `std.debug.runtime_safety` answers
+/// a different question, the build mode's, and reporting it here claimed
+/// "safety on" for a build whose interiors were unchecked. The gate in
+/// `zig build bench` caught that on its first run, which is the argument for
+/// the gate.
+///
+/// So this is the single source of truth: the `@setRuntimeSafety` calls below
+/// take their argument from it, and the two cannot drift. ADR 0026.
+pub const hot_unchecked = true;
 pub const Act = ref.Act;
 
 /// Integer lane count, from the target rather than from a guess.
@@ -148,7 +167,7 @@ fn qgemmTile(
     // 109.3 ms to 53.2, against 48.2 for a whole-program ReleaseFast build --
     // so this recovers almost all of the optimized-build speed while leaving
     // every other function, and the entire load path, checked. ADR 0026.
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(!hot_unchecked);
     var rows: [tile][]const i8 = undefined;
     inline for (0..tile) |r| rows[r] = a[(row + r) * a_stride ..][0..k];
 
@@ -228,7 +247,7 @@ fn dotI8(a: []const i8, b: []const i8) i32 {
     // 109.3 ms to 53.2, against 48.2 for a whole-program ReleaseFast build --
     // so this recovers almost all of the optimized-build speed while leaving
     // every other function, and the entire load path, checked. ADR 0026.
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(!hot_unchecked);
     assert(a.len == b.len);
 
     var acc: I32x = @splat(0);

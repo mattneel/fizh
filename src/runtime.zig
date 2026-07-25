@@ -18,8 +18,41 @@ const arena_mod = arena;
 pub const encoder = @import("graph/encoder.zig");
 pub const profile = @import("graph/profile.zig");
 
-/// The optimize mode *this module* was compiled with. A benchmark that reports
-/// the tool's mode instead of the runtime's is reporting the wrong number.
+/// How *this module* was actually compiled.
+///
+/// Four measurement gates in this project have failed silently, each producing
+/// a plausible number rather than an error: a synthetic decoder architecture, a
+/// decode loop that terminated at step 0, a reference engine running without
+/// its shortlist, and `--release=fast` being swallowed by
+/// `standardOptimizeOption` so a ReleaseSafe build reported itself as fast.
+///
+/// The defence is the same every time: **a benchmark must assert its own
+/// configuration and refuse to run if it cannot.** This is what it asserts
+/// against — read from the runtime module itself, not from what the build
+/// script believes it asked for.
+pub const BuildConfig = struct {
+    mode: std.builtin.OptimizeMode,
+    backend: []const u8,
+    /// Integer lanes the vector backend chose for this target.
+    lanes: usize,
+    /// Whether the hot loop interiors have runtime safety disabled (ADR 0026).
+    /// Reported rather than assumed, because it is worth 2x and a build that
+    /// silently lost it would look like a regression with no cause.
+    hot_unchecked: bool,
+    single_threaded: bool,
+};
+
+pub fn buildConfig() BuildConfig {
+    const b = @import("builtin");
+    return .{
+        .mode = b.mode,
+        .backend = kernel.active.name,
+        .lanes = kernel.vector.laneCount(),
+        .hot_unchecked = kernel.vector.hot_unchecked,
+        .single_threaded = b.single_threaded,
+    };
+}
+
 pub fn buildMode() std.builtin.OptimizeMode {
     return @import("builtin").mode;
 }

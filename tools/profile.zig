@@ -47,6 +47,17 @@ fn nanos() u64 {
     return @intCast(@max(0, t.nanoseconds));
 }
 
+/// Everything a reader needs to know the number means what it says.
+fn reportConfig(out: *Io.Writer, c: fizh.BuildConfig) !void {
+    try out.print("  CONFIGURATION (read from the runtime module, not assumed)\n", .{});
+    try out.print("    optimize        {s}\n", .{@tagName(c.mode)});
+    try out.print("    backend         {s}, {d} integer lanes\n", .{ c.backend, c.lanes });
+    try out.print("    hot interiors   {s}\n", .{
+        if (c.hot_unchecked) "runtime safety OFF (ADR 0026)" else "runtime safety on",
+    });
+    try out.print("    single threaded {}\n", .{c.single_threaded});
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
@@ -65,7 +76,16 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const args = try init.minimal.args.toSlice(arena);
-    const path = if (args.len > 1) args[1] else "zig-out/esen.fzm";
+    var path: []const u8 = "zig-out/esen.fzm";
+    var expect: ?std.builtin.OptimizeMode = null;
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--expect-mode") and i + 1 < args.len) {
+            i += 1;
+            expect = std.meta.stringToEnum(std.builtin.OptimizeMode, args[i]) orelse
+                return error.BadMode;
+        } else path = args[i];
+    }
     const blob = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(128 << 20));
     defer gpa.free(blob);
 
@@ -102,10 +122,27 @@ pub fn main(init: std.process.Init) !void {
     const out_buf = try gpa.alloc(u8, 8192);
     defer gpa.free(out_buf);
 
-    try out.print("{s}\n  arena {d:.1} MiB, {s} backend, tool={s} runtime={s}\n\n", .{
-        path, @as(f64, @floatFromInt(arena_bytes)) / (1 << 20), fizh.kernel.active.name,
-        @tagName(@import("builtin").mode), @tagName(fizh.buildMode()),
+    const cfg_actual = fizh.buildConfig();
+    try out.print("{s}\n  arena {d:.1} MiB\n", .{
+        path, @as(f64, @floatFromInt(arena_bytes)) / (1 << 20),
     });
+    try reportConfig(out, cfg_actual);
+
+    // The gate. `standardOptimizeOption` with a preferred mode silently
+    // swallows `--release=fast`, which is how a ReleaseSafe build once reported
+    // itself as ReleaseFast and produced numbers nobody questioned. Asking for
+    // a mode and not getting it is now an error, not a footnote.
+    if (expect) |want| {
+        if (cfg_actual.mode != want) {
+            try out.print(
+                "\n  REFUSING TO RUN: asked for {s}, the runtime module is {s}.\n" ++
+                "  A benchmark that cannot confirm its own configuration is not a measurement.\n",
+                .{ @tagName(want), @tagName(cfg_actual.mode) },
+            );
+            return error.WrongOptimizeMode;
+        }
+    }
+    try out.print("\n", .{});
 
     for ([_]u32{ 6, 12, 24, 48, 96, 120 }) |words| {
         const src = try message(arena, words);

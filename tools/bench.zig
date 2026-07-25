@@ -108,10 +108,17 @@ pub fn main(init: std.process.Init) !void {
     const b: Budget = .{};
     var failed: u32 = 0;
 
-    try out.print("{s}\n  {s} backend, {s} build\n\n", .{
-        args[1],
-        fizh.kernel.active.name,
-        @tagName(@import("builtin").mode),
+    // Read from the runtime module, never from what the build script believes
+    // it asked for. Four measurement gates in this project have failed silently
+    // and every one produced a plausible number; this is the standing defence
+    // (SPEC §13).
+    const c = fizh.buildConfig();
+    try out.print("{s}\n", .{args[1]});
+    try out.print("  CONFIGURATION (read from the runtime module)\n", .{});
+    try out.print("    optimize        {s}\n", .{@tagName(c.mode)});
+    try out.print("    backend         {s}, {d} integer lanes\n", .{ c.backend, c.lanes });
+    try out.print("    hot interiors   {s}\n\n", .{
+        if (c.hot_unchecked) "runtime safety OFF (ADR 0026)" else "runtime safety on",
     });
     try out.print("  SPEC §14 budgets are MOBILE, measured on the pinned Android.\n", .{});
     try out.print("  These are DESKTOP measurements against them, so passing is\n", .{});
