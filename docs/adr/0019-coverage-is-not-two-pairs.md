@@ -125,6 +125,27 @@ averaged into a mean. Anyone who wants the newer model can point
 `tools/bergamot.py` at it directly; it converts and translates correctly, it
 simply does not fit the budget fizh is designed around.
 
+### 7. Mixed-width pivots read the wrong positional table
+
+The sweep's second half — pivot coverage across non-English pairs — found the
+only *runtime* defect in this ADR. `pos_enc` is one shared arena region, filled
+by every `fizh_model_load` at that model's `d_model`. With both student widths
+in the registry, loading a 384 model after a 256 model left the 256 model
+reading a table laid out for 384.
+
+    cs→en→ru, before   Вскоре, без ранее, без первого, без «четвертых…
+    cs→en→ru, after    «Теперь у нас есть четырёхмесячные мыши без диабета…
+
+Chaining the same two models as separate processes was always correct, which is
+why no quality number in work orders 4 or 5 is affected — every one of them ran
+two invocations rather than one two-slot pivot. **The pivot path had a
+`can_translate` test and no output test.** That is the gap, not the arithmetic.
+
+`runPass` refills when the active width differs from what the table holds.
+Same-width pivots pay nothing. The regression test asserts the property
+directly — loading a second model of a different width cannot change what the
+first produces — and fails without the fix.
+
 ## The result
 
 See the README for the matrix. The distribution is what matters: most pairs sit
