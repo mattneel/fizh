@@ -66,6 +66,10 @@
   big.LITTLE phone those are different numbers and the gap is the scheduler.</p>
   <table id="t-dist"></table>
   <p class="note" id="mem"></p>
+  <p class="note"><strong>Linear memory demanded</strong> is
+  <code>WebAssembly.Memory.buffer.byteLength</code> at its maximum during the
+  run, for both engines. It is not resident set size: growing commits pages but
+  the OS need not keep them, and neither engine reserves up front.</p>
   <p class="note" id="fails"></p>
   <h3>Copyable result</h3>
   <p class="note">Paste this into an issue. It carries the build, the model

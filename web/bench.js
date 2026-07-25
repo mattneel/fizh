@@ -293,9 +293,13 @@ function render(r) {
   const rows = [{
     cells: ["cold start", ms(fr?.cold_start_ms), ms(fb?.cold_start_ms), ms(bg?.cold_start_ms)],
   }, {
-    // Peak heap is a real axis and fizh wins it by roughly 6x. On a phone it
-    // may be the axis that decides whether the thing runs at all.
-    cells: ["peak heap",
+    // `WebAssembly.Memory.buffer.byteLength` at its maximum during the run —
+    // *linear memory demanded*, for both engines, measured the same way. It is
+    // not RSS: growth commits pages but the OS need not keep them resident, and
+    // neither engine reserves up front (bergamot's initial is 16 MiB against a
+    // 2 GiB maximum). Compare it as "how much address space each engine asked
+    // for", not as "how much RAM it used".
+    cells: ["linear memory demanded",
       fr?.peak_heap_bytes ? `${(fr.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—",
       fb?.peak_heap_bytes ? `${(fb.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—",
       bg?.peak_heap_bytes ? `${(bg.peak_heap_bytes / 2 ** 20).toFixed(0)} MiB` : "—"],

@@ -109,6 +109,7 @@ const handlers = {
       arena_bytes: ctx.arenaBytes,
       wasm_bytes: wasm.length,
       models: meta,
+      // Linear memory *demanded*, not RSS. See bench.js for the definition.
       heap_bytes: ctx.f.memory.buffer.byteLength,
     };
   },
