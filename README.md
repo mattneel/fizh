@@ -7,6 +7,13 @@ Text in, language code in, translated text out. Nothing else.
 
 `docs/SPEC.md` is the specification. This file is the map.
 
+| | |
+|---|---|
+| `docs/SPEC.md` | what fizh is, and every budget it is held to |
+| `docs/ABI.md` | the public surface, and what a version bump means for artifacts you already have |
+| `docs/COVERAGE.md` | all 105 language pairs: what works, what does not, and by how much |
+| `docs/adr/` | why, including the negative results |
+
 ```
 zig build                                        # Zig 0.16
 tools/fetch-model.sh es en                       # 19 MB, downloads and converts
@@ -28,12 +35,12 @@ Real Mozilla Bergamot models, real translation, through the shipped wasm.
 | en→de | `Good morning, how are you?` → `Guten Morgen, wie geht es dir?` |
 | es→de, pivoted | `Buenos días, ¿cómo estás?` → `Guten Morgen, wie geht es dir?` |
 | chrF++, chat corpus | **46.73** (bergamot-translator: 45.86) |
-| warm p50, 12 tokens | **15.6 ms** (budget 22) |
-| warm p99, 120 tokens | **134 ms** (budget 200) |
-| warm p50, 8-sentence paragraph | **66 ms** (budget 100) |
-| cold start | **6.5 ms** (budget 10) |
+| warm p50, 12 tokens | **15.2 ms** (budget 22) |
+| warm p99, 120 tokens | **128 ms** (budget 200) |
+| warm p50, 8-sentence paragraph | **65 ms** (budget 100) |
+| cold start | **6.4 ms** (budget 10) |
 | slot, per direction | **19.23 MB** (budget 20) |
-| shared scratch | **6.77 MB** (budget 10) |
+| shared scratch | **7.16 MB** (budget 10) |
 | `fizh.baseline.wasm` | **32 KB gzipped**, 0 imports, 8 exports (budget 200 KB) |
 
 Budgets are SPEC §14 as retightened to ~1.5x measured — the originals were
@@ -43,25 +50,43 @@ a 3x regression. Every number is a desktop proxy; see the last section.
 ### Against the reference implementation
 
 500 FLORES devtest segments, chrF++ against gold, paired bootstrap over 1000
-resamples. Deltas against `bergamot-translator` on identical input, never
-absolute scores:
+resamples. Deltas against `bergamot-translator` on identical input, run
+`--per-line` — one sentence per batch, the only configuration comparable to a
+library that translates one message at a time (ADR 0018). Never absolute scores
+across differing input.
 
 | direction | delta | 95% CI | |
 |---|---|---|---|
-| es→en | −0.08 | [−0.37, +0.20] | indistinguishable |
-| en→de | −0.33 | [−0.74, +0.03] | indistinguishable |
-| es→de, end to end | −0.23 | [−0.57, +0.10] | indistinguishable |
+| es→en | −0.10 | [−0.35, +0.15] | indistinguishable |
+| en→de | −0.16 | [−0.47, +0.14] | indistinguishable |
+| es→de, end to end | −0.17 | [−0.50, +0.16] | indistinguishable |
+| chat register (n=40) | +0.71 | [−2.04, +3.04] | indistinguishable |
 
-Every interval covers zero. 46% of segments are byte-identical to the
+Every interval covers zero. 45% of segments are byte-identical to the
 reference; the rest diverge at a per-token hazard of ~0.025, flat across
 position, which is what two int8 implementations rounding differently under
 greedy decode look like.
 
-Getting there took finding a real bug: fizh seeded the decoder with
-`emb(</s>)` where Marian zero-fills, which got roughly half of all first
-tokens wrong and cost 1.5 chrF++ on en→de. ADR 0015 has the method — teacher
-forcing, which is what separates a defect at position 0 from its own blast
-radius.
+### Coverage: all 105 pairs Firefox ships
+
+`docs/COVERAGE.md` has the matrix. In summary:
+
+| | |
+|---|---|
+| usable | **99 / 105** |
+| within ±1.0 chrF++ of the reference | **87 / 99** |
+| median delta | **+0.17** |
+| architectures | `d=256, 6+2` (76 pairs), `d=384, 6+4` (23) |
+
+Six are refused with a stated reason: five have separate source and target
+vocabularies, one has a script-qualified language code that two ASCII letters
+cannot hold. Four more (`bg` and `fr`, both directions) are usable but score
+10–22 low, because their v1.0 "tiny" artifact is a poor one — their v2.0
+translates correctly through fizh but is 33 MB, over the §14 weights budget.
+
+Sweeping the registry is where most of the recent bugs came from, and every one
+of them looked like a property of a language until it was a line in a table
+next to a hundred that worked (ADR 0019).
 
 Every SPEC §14 budget met, on the real thing.
 
@@ -94,7 +119,10 @@ zig build eval      T4 chrF++, per corpus, never averaged
 | `tools/marian.py` | Readers for Marian's binary model and lexical shortlist. |
 | `tools/bergamot.py` | A Bergamot bundle → `.fzm`. |
 | `tools/fetch-model.sh` | Download and convert, from nothing, in one command. |
-| `test/` | `golden/` T0 vectors and end-to-end, `real/` recorded translations, `fuzz/` T3. `differential_test.zig` is T1. |
+| `tools/eval/sweep.py` | Every registry pair: fetch, convert, load, translate, score. |
+| `tools/eval/bootstrap.py` | Paired bootstrap. A delta without an interval is not a measurement. |
+| `tools/eval/divergence.py` | Per-token hazard and where the first divergence lands. |
+| `test/` | `golden/` T0 vectors and end-to-end, `real/` translations recorded **from bergamot**, `fuzz/` T3. `differential_test.zig` is T1. |
 
 ## What the real model taught us
 
@@ -160,3 +188,10 @@ can be wrong.*
 - **The shipped `.fzm` is 19.23 MB against a 20 MB budget.** The `nmt_nfkc`
   table is 237 KB of that and is the first thing to drop if a future artifact
   needs the headroom (ADR 0017).
+- **Six pairs are unsupported**, with stated reasons: `en-ja`, `en-ko`,
+  `en-zh-Hans`, `en-zh-Hant` and `zh-Hant-en` have separate source and target
+  vocabularies; `zh-Hans-en` has a language code two ASCII letters cannot hold.
+  Supporting either is a different runtime, not a flag.
+- **`bg` and `fr` score 10–22 low in both directions** because their v1.0 tiny
+  artifact is a poor one, not because of fizh. See `docs/COVERAGE.md`.
+- **Pivoting is only through English**, and only where both hops exist.
