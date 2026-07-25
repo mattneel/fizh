@@ -345,6 +345,23 @@ const Header = struct {
     count: u32,
 };
 
+/// The hyper-parameters, read without validating them against any config.
+///
+/// A host that wants to size its arena *from* an artifact rather than reject an
+/// artifact that does not fit a guessed arena needs this: Firefox's registry
+/// ships more than one student architecture, and `d_model=384, n_dec=4` is as
+/// real as `256, 2`. Returns null only when the blob is too short or not a
+/// `.fzm` — everything else is the caller's judgement.
+pub fn peekHParams(blob: []const u8) ?HParams {
+    if (blob.len < header_bytes) return null;
+    if (!std.mem.eql(u8, blob[0..4], &magic)) return null;
+    if (readU32(blob, 4) != version) return null;
+
+    var raw: [48]u8 align(@alignOf(HParams)) = undefined;
+    @memcpy(&raw, blob[12..60]);
+    return @bitCast(raw);
+}
+
 fn parseHeader(blob: []const u8, cfg: abi.Config) LoadError!Header {
     if (blob.len < header_bytes) return error.BadArtifact;
     if (!std.mem.eql(u8, blob[0..4], &magic)) return error.BadArtifact;

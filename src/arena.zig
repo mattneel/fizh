@@ -68,7 +68,6 @@ pub const Layout = struct {
     logits: Region,
     shortlist_seen: Region,
     src_ids: Region,
-    pivot_ids: Region,
     tgt_ids: Region,
     /// Source bytes after the `nmt_nfkc` rewrite table, before whitespace
     /// handling. ADR 0017.
@@ -126,7 +125,6 @@ pub const Layout = struct {
         layout.logits = c.take(shortlist * 4);
         layout.shortlist_seen = c.take((@as(u64, cfg.max_vocab) + 7) / 8);
         layout.src_ids = c.take(s * 4);
-        layout.pivot_ids = c.take(s * 4);
         layout.tgt_ids = c.take(t * 4);
         // The charsmap rewrites into `tok_raw`; whitespace normalization then
         // moves it into `tok_norm`. Two buffers because the rewrite can grow the
@@ -233,7 +231,7 @@ test "layout is 64-byte aligned everywhere and fits the SPEC §4.3 example" {
         layout.attn_work,   layout.attn_scores,
         layout.vec,         layout.qvec,            layout.shortlist_rows, layout.shortlist_ids,
         layout.shortlist_scales, layout.logits,     layout.shortlist_seen, layout.src_ids,
-        layout.pivot_ids,   layout.tgt_ids,         layout.tok_raw,   layout.tok_norm,
+        layout.tgt_ids,     layout.tok_raw,         layout.tok_norm,
         layout.sent_spans,
         layout.tok_lattice,
         layout.io_src,      layout.io_pivot,        layout.io_dst,

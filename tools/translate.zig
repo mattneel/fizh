@@ -47,7 +47,30 @@ pub fn main(init: std.process.Init) !void {
     }
     if (src_lang.len != 2 or tgt_lang.len != 2) return error.BadLang;
 
-    var cfg = defaultConfig();
+    // Read every artifact first: the arena is sized from what they actually
+    // are, not from a guess that a 384-wide model then fails to fit.
+    var blobs: [8][]u8 = undefined;
+    var loaded: u32 = 0;
+    defer for (blobs[0..loaded]) |b| gpa.free(b);
+    for (models[0..model_count]) |path| {
+        blobs[loaded] = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(128 << 20));
+        loaded += 1;
+    }
+
+    var cfg = configFor(blobs[0]) orelse {
+        try err.print("{s}: not a version {d} .fzm\n", .{ models[0], fizh.format.version });
+        return error.BadArtifact;
+    };
+    for (blobs[1..loaded]) |b| {
+        const other = configFor(b) orelse return error.BadArtifact;
+        cfg.max_model_bytes = @max(cfg.max_model_bytes, other.max_model_bytes);
+        cfg.max_d_model = @max(cfg.max_d_model, other.max_d_model);
+        cfg.max_ffn_dim = @max(cfg.max_ffn_dim, other.max_ffn_dim);
+        cfg.max_enc_layers = @max(cfg.max_enc_layers, other.max_enc_layers);
+        cfg.max_dec_layers = @max(cfg.max_dec_layers, other.max_dec_layers);
+        cfg.max_heads = @max(cfg.max_heads, other.max_heads);
+        cfg.max_vocab = @max(cfg.max_vocab, other.max_vocab);
+    }
     cfg.max_models = model_count;
     const cfg_bytes = cfg.bytes();
     const arena_bytes = fizh.arenaBytes(&cfg_bytes);
@@ -62,12 +85,10 @@ pub fn main(init: std.process.Init) !void {
         return error.InitFailed;
     }
 
-    for (models[0..model_count], 0..) |path, slot| {
-        const blob = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(128 << 20));
-        defer gpa.free(blob);
+    for (blobs[0..loaded], 0..) |blob, slot| {
         const status = fizh.modelLoad(handle, @intCast(slot), blob);
         if (status != 0) {
-            try err.print("{s}: {s}\n", .{ path, abi.statusStr(status) });
+            try err.print("{s}: {s}\n", .{ models[slot], abi.statusStr(status) });
             return error.LoadFailed;
         }
     }
@@ -104,21 +125,32 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 }
 
-fn defaultConfig() abi.Config {
+/// Sized from the artifact rather than guessed at.
+///
+/// Firefox's registry ships more than one student architecture: most pairs are
+/// SPEC §4.3's `d_model=256, n_dec=2`, but ar, eu and gl are `384, 4`. A
+/// hardcoded config rejected those with `model_too_large` even though every
+/// kernel handles them — the limit was the tool's, not the runtime's. A host
+/// embedding fizh picks its own ceilings; a command-line tool pointed at one
+/// file should fit that file.
+fn configFor(blob: []const u8) ?abi.Config {
+    const hp = fizh.format.peekHParams(blob) orelse return null;
+    const slot = std.mem.alignForward(u32, @intCast(blob.len), 64);
     return .{
         .abi_version = abi.abi_version,
         .max_models = 1,
-        .max_model_bytes = 22 << 20,
+        // Repack can grow a slot past the file; a quarter is ample headroom.
+        .max_model_bytes = slot +| (slot / 4),
         .max_src_bytes = 4096,
         .max_src_tokens = 256,
         .max_tgt_tokens = 384,
         .max_shortlist = 2048,
-        .max_d_model = 256,
-        .max_ffn_dim = 1536,
-        .max_enc_layers = 6,
-        .max_dec_layers = 2,
-        .max_heads = 8,
-        .max_vocab = 32768,
+        .max_d_model = hp.d_model,
+        .max_ffn_dim = hp.ffn_dim,
+        .max_enc_layers = hp.n_enc_layers,
+        .max_dec_layers = hp.n_dec_layers,
+        .max_heads = hp.n_heads,
+        .max_vocab = hp.vocab_size,
         .reserved = .{ 0, 0, 0 },
     };
 }

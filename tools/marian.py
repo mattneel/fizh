@@ -161,10 +161,17 @@ def read_shortlist(path: Path, vocab_size: int):
     magic, _checksum, first_num, best_num, n_offsets, n_entries = struct.unpack_from("<6Q", b, 0)
     if magic != SHORTLIST_MAGIC:
         raise SystemExit(f"{path}: magic {magic:#x}, expected {SHORTLIST_MAGIC:#x}")
-    if n_offsets != vocab_size + 1:
+    # `wordToOffset` is normally vocab_size + 1: one start per source word plus
+    # a terminating sentinel. Artifacts in Firefox's registry ship short ones —
+    # en-es at exactly vocab_size, en-fa at vocab_size - 2 — where the trailing
+    # source words have no candidate list at all. That is usable: those words
+    # contribute nothing to the union, which is what the file says about them.
+    # A shortlist *longer* than the vocabulary is a real disagreement.
+    if n_offsets > vocab_size + 1:
         raise SystemExit(
-            f"{path}: wordToOffsetSize {n_offsets} but the vocabulary has "
-            f"{vocab_size} pieces; the shortlist and the vocabulary disagree"
+            f"{path}: wordToOffsetSize {n_offsets} exceeds {vocab_size + 1} for a "
+            f"vocabulary of {vocab_size} pieces; the shortlist and the "
+            f"vocabulary disagree"
         )
 
     want = 48 + n_offsets * 8 + n_entries * 4
@@ -176,6 +183,12 @@ def read_shortlist(path: Path, vocab_size: int):
 
     if offsets[-1] != n_entries:
         raise SystemExit(f"{path}: final offset {offsets[-1]} != {n_entries} entries")
+
+    if n_offsets < vocab_size + 1:
+        # Pad so callers can always read offsets[id + 1]. Every word past the
+        # end of the file gets an empty candidate list.
+        pad = np.full(vocab_size + 1 - n_offsets, np.uint64(n_entries))
+        offsets = np.concatenate([offsets, pad])
     if int(targets.max(initial=0)) >= vocab_size:
         raise SystemExit(f"{path}: target id {targets.max()} outside the vocabulary")
 
