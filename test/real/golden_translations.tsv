@@ -8,6 +8,11 @@
 # Regenerate deliberately, and say why in the commit:
 #   tools/fetch-model.sh es en && python3 tools/regress.py --update
 #
+# The last three rows are normalization cases (ADR 0017): a fraction character,
+# an ellipsis, and fullwidth Latin. They can only come out right if the
+# `nmt_nfkc` charsmap the artifact ships is being applied, and all three were
+# checked byte-identical against bergamot-translator when recorded.
+#
 # source<TAB>expected
 Hola, ¿qué tal?	Hey, how are you?
 El gato negro duerme en la mesa de la cocina.	The black cat sleeps on the kitchen table.
@@ -16,3 +21,6 @@ Buenos días, ¿cómo estás?	Good morning, how are you?
 No puedo ir mañana porque tengo trabajo.	I can't go tomorrow because I have a job.
 ¿Puedes traer pan cuando vuelvas?	Can you get bread when you get back?
 El tren llega a las ocho de la mañana.	The train arrives at 8 a.m.
+Mide 29¾ pulgadas por 24½ pulgadas.	It measures 293-4 inches by 241/2 inches.
+Habla mucho durante la audiencia… Estaba preparándome.	He spoke a lot during the hearing... he was preparing me.
+Ｆｕｌｌｗｉｄｔｈ texto	Fullwidth text

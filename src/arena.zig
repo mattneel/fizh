@@ -70,8 +70,11 @@ pub const Layout = struct {
     src_ids: Region,
     pivot_ids: Region,
     tgt_ids: Region,
+    /// Source bytes after the `nmt_nfkc` rewrite table, before whitespace
+    /// handling. ADR 0017.
+    tok_raw: Region,
     /// Normalized source bytes: whitespace collapsed, word boundaries marked,
-    /// dummy prefix prepended. One byte longer than the raw source at most.
+    /// dummy prefix prepended. One byte longer than `tok_raw` at most.
     tok_norm: Region,
     /// Sentence spans from `tok/ssplit.zig`. Bergamot's models are trained on
     /// single sentences, so a pass translates one at a time and rejoins.
@@ -125,6 +128,11 @@ pub const Layout = struct {
         layout.src_ids = c.take(s * 4);
         layout.pivot_ids = c.take(s * 4);
         layout.tgt_ids = c.take(t * 4);
+        // The charsmap rewrites into `tok_raw`; whitespace normalization then
+        // moves it into `tok_norm`. Two buffers because the rewrite can grow the
+        // text and the whitespace pass prepends a marker, so neither is safe
+        // in place. ADR 0017.
+        layout.tok_raw = c.take(src_bytes + norm_slack);
         layout.tok_norm = c.take(src_bytes + norm_slack);
         // A sentence needs at least a terminator and a space, so the input
         // cannot contain more than half its bytes in sentences.
@@ -225,7 +233,8 @@ test "layout is 64-byte aligned everywhere and fits the SPEC §4.3 example" {
         layout.attn_work,   layout.attn_scores,
         layout.vec,         layout.qvec,            layout.shortlist_rows, layout.shortlist_ids,
         layout.shortlist_scales, layout.logits,     layout.shortlist_seen, layout.src_ids,
-        layout.pivot_ids,   layout.tgt_ids,         layout.tok_norm,  layout.sent_spans,
+        layout.pivot_ids,   layout.tgt_ids,         layout.tok_raw,   layout.tok_norm,
+        layout.sent_spans,
         layout.tok_lattice,
         layout.io_src,      layout.io_pivot,        layout.io_dst,
     };

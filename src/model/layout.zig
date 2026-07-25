@@ -138,6 +138,7 @@ pub const DecLayer = struct {
 pub const Sizes = struct {
     piece_bytes: u32,
     prefix_bytes: u32 = 0,
+    charsmap_bytes: u32 = 0,
     shortlist_nnz: u32,
     shortlist_frequent: u32,
 };
@@ -163,6 +164,8 @@ pub const SlotLayout = struct {
     tok_flags: u32,
     tok_prefixes: u32,
     tok_prefixes_len: u32,
+    tok_charsmap: u32,
+    tok_charsmap_len: u32,
 
     sl_offsets: u32,
     sl_targets: u32,
@@ -221,6 +224,8 @@ pub const SlotLayout = struct {
         out.tok_flags = c.take(v);
         out.tok_prefixes = c.take(sizes.prefix_bytes);
         out.tok_prefixes_len = sizes.prefix_bytes;
+        out.tok_charsmap = c.take(sizes.charsmap_bytes);
+        out.tok_charsmap_len = sizes.charsmap_bytes;
 
         out.sl_offsets = c.take((@as(u64, v) + 1) * 4);
         out.sl_targets = c.take(@as(u64, sizes.shortlist_nnz) * 2);

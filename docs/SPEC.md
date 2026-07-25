@@ -23,7 +23,9 @@ Lowercase everywhere. Not an acronym.
 
 ## 1. Scope
 
-**In:** artifact loading, **sentence segmentation**, tokenization, quantized seq2seq inference, greedy decode, route resolution and English pivoting, a C ABI.
+**In:** artifact loading, **sentence segmentation**, **`nmt_nfkc` normalization**, tokenization, quantized seq2seq inference, greedy decode, route resolution and English pivoting, a C ABI.
+
+Normalization is not reimplemented: the model's own `precompiled_charsmap` ships in the artifact and the runtime interprets it (ADR 0017). An NFKC implementation that is correct and disagrees with the model's table is worse than a table interpreter that agrees with it, because the model's segmentation was trained on the table.
 
 Segmentation is not optional. Bergamot's models are trained on single sentences and stop at the end of one; handing them a paragraph returns its first sentence and silently discards the rest, measured at −24 chrF++ (ADR 0011).
 
@@ -109,6 +111,7 @@ A pivot is two sequential passes. Pass one completes before pass two starts, so 
 | `shortlist_rows` | `max_shortlist · max(d_model) · 1` |
 | `shortlist_ids`, `logits` | `max_shortlist · 4` each |
 | `sent_spans` | `(max_src_bytes / 2 + 2) · 8` — a sentence needs at least a terminator and a separator |
+| `tok_raw`, `tok_norm` | `max_src_bytes + 8` each — the `nmt_nfkc` rewrite runs into `tok_raw`, whitespace handling then moves it into `tok_norm`. Two buffers because the rewrite can grow the text and the whitespace pass prepends a marker (ADR 0017). |
 | `tok_lattice` | `max_src_bytes · sizeof(LatticeNode)` |
 | `io_src` | `max_src_bytes` |
 | `io_pivot`, `io_dst` | `2 · max_src_bytes` each — output is not bounded by input. German compounding and English article expansion both exceed the source routinely, and a pivot's English waypoint can exceed both endpoints. Past the factor the pass returns `out_too_small`; it never truncates. |

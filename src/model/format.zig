@@ -26,6 +26,7 @@ const names = @import("names.zig");
 const repack = @import("repack.zig");
 const math = @import("../kernel/math.zig");
 const trie = @import("../tok/trie.zig");
+const tok_charsmap = @import("../tok/charsmap.zig");
 
 pub const magic = [4]u8{ 'F', 'I', 'Z', 'H' };
 /// 2 adds: `act_quant` in the header, per-matmul `*.alpha` tensors,
@@ -203,6 +204,13 @@ pub const Model = struct {
     /// Non-breaking prefixes for the source language (`tok.nonbreaking`).
     /// Empty when the artifact predates them, which simply disables that rule
     /// in `tok/ssplit.zig`.
+    /// The `nmt_nfkc` rewrite table (`tok.charsmap`), empty when the artifact
+    /// carries none. ADR 0017.
+    pub fn charsmap(self: *const Model, slot: []const u8) tok_charsmap.Charsmap {
+        if (self.sl.tok_charsmap_len == 0) return tok_charsmap.none;
+        return .{ .blob = slot[self.sl.tok_charsmap..][0..self.sl.tok_charsmap_len] };
+    }
+
     pub fn prefixes(self: *const Model, slot: []const u8) []const u8 {
         assert(self.loaded);
         if (self.sl.tok_prefixes_len == 0) return &.{};
@@ -392,6 +400,9 @@ fn measure(blob: []const u8, count: u32, vocab_size: u32) LoadError!layout.Sizes
     // Optional: artifacts written before sentence splitting existed have none,
     // and an empty list simply disables the prefix rule (ADR 0011).
     const prefixes = find(blob, count, names.tok_nonbreaking);
+    // Optional for the same reason: without it the tokenizer sees the raw
+    // bytes, which is what fizh did before ADR 0017.
+    const charsmap = find(blob, count, names.tok_charsmap);
     const targets = find(blob, count, names.sl_targets) orelse return error.MissingTensor;
     const frequent = find(blob, count, names.sl_frequent) orelse return error.MissingTensor;
 
@@ -405,10 +416,15 @@ fn measure(blob: []const u8, count: u32, vocab_size: u32) LoadError!layout.Sizes
     if (prefixes) |p| {
         if (p.nbytes > 1 << 16) return error.BadArtifact;
     }
+    if (charsmap) |c| {
+        // A darts-clone blob is a u32 length followed by whole units.
+        if (c.nbytes < 4 or c.nbytes > 1 << 22) return error.BadArtifact;
+    }
 
     return .{
         .piece_bytes = @intCast(pieces.nbytes),
         .prefix_bytes = if (prefixes) |p| @intCast(p.nbytes) else 0,
+        .charsmap_bytes = if (charsmap) |c| @intCast(c.nbytes) else 0,
         .shortlist_nnz = @intCast(targets.nbytes / 2),
         .shortlist_frequent = @intCast(frequent.nbytes / 4),
     };
@@ -505,6 +521,9 @@ fn loadTokenizer(c: *Ctx) LoadError!void {
     try rawBytes(c, names.tok_flags, c.sl.tok_flags, .u8, v);
     if (c.sl.tok_prefixes_len != 0) {
         try rawBytes(c, names.tok_nonbreaking, c.sl.tok_prefixes, .u8, c.sl.tok_prefixes_len);
+    }
+    if (c.sl.tok_charsmap_len != 0) {
+        try rawBytes(c, names.tok_charsmap, c.sl.tok_charsmap, .u8, c.sl.tok_charsmap_len);
     }
 
     const offs = u32View(c.slot, c.sl.tok_offsets, v + 1);

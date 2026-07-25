@@ -13,6 +13,7 @@ const assert = std.debug.assert;
 
 const format = @import("../model/format.zig");
 const layout = @import("../model/layout.zig");
+const charsmap_mod = @import("../tok/charsmap.zig");
 const ssplit = @import("../tok/ssplit.zig");
 const trie = @import("../tok/trie.zig");
 const unigram = @import("../tok/unigram.zig");
@@ -63,6 +64,7 @@ pub const Ctx = struct {
     shortlist_seen: []u8,
     src_ids: []u32,
     tgt_ids: []u32,
+    tok_raw: []u8,
     tok_norm: []u8,
     sent_spans: []ssplit.Span,
     tok_lattice: []unigram.LatticeNode,
@@ -81,6 +83,12 @@ pub const Ctx = struct {
         const alpha = format.f32View(self.slot, m.alpha, 1)[0];
         assert(alpha > 0);
         return 1.0 / alpha;
+    }
+
+    /// The `nmt_nfkc` rewrite table for this direction, empty when the
+    /// artifact carries none. ADR 0017.
+    pub fn charsmap(self: *const Ctx) charsmap_mod.Charsmap {
+        return self.model.charsmap(self.slot);
     }
 
     pub fn prefixes(self: *const Ctx) ssplit.Prefixes {
@@ -229,7 +237,12 @@ fn wrapAt(text: []const u8, max_tokens: u32) usize {
 /// One sentence: tokenize, encode, greedy decode, detokenize.
 fn one(ctx: *Ctx, in: []const u8, out: []u8) Error!u32 {
     const v = ctx.vocab();
-    const n = unigram.normalize(in, ctx.tok_norm);
+    // SentencePiece normalizes before it segments: `nmt_nfkc` first, then the
+    // whitespace rules and the word-boundary marker. Doing it the other way
+    // round would run the rewrite over text that already carries markers.
+    const raw = ctx.charsmap().normalize(in, ctx.tok_raw) catch return error.SrcTooLong;
+    if (raw + 1 > ctx.tok_norm.len) return error.SrcTooLong;
+    const n = unigram.normalize(ctx.tok_raw[0..raw], ctx.tok_norm);
     const params: unigram.Params = .{
         .unk_id = ctx.hp.unk_id,
         .eos_id = ctx.hp.eos_id,

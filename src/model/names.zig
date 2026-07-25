@@ -116,6 +116,7 @@ pub const tok_flags = of("tok.flags");
 /// Non-breaking prefixes for the source language, NUL-separated, lowercase.
 /// Optional; see ADR 0011.
 pub const tok_nonbreaking = of("tok.nonbreaking");
+pub const tok_charsmap = of("tok.charsmap");
 
 pub const sl_offsets = of("sl.offsets");
 pub const sl_targets = of("sl.targets");

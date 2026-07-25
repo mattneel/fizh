@@ -254,6 +254,7 @@ fn buildCtx(inst: *Instance, slot: u8) pass.Ctx {
         .shortlist_seen = a.bytes(l.shortlist_seen),
         .src_ids = a.view(u32, l.src_ids, s),
         .tgt_ids = a.view(u32, l.tgt_ids, t),
+        .tok_raw = a.bytes(l.tok_raw),
         .tok_norm = a.bytes(l.tok_norm),
         .sent_spans = a.view(ssplit.Span, l.sent_spans, l.sent_spans.len / @sizeOf(ssplit.Span)),
         .tok_lattice = a.view(unigram.LatticeNode, l.tok_lattice, l.tok_lattice.len / @sizeOf(unigram.LatticeNode)),

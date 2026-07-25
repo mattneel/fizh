@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 import marian
+import charsmap as charsmap_mod
 import nonbreaking
 from convert import Artifact, HParams, Vocab, emit_vocab, read_spm
 
@@ -212,6 +213,18 @@ def convert(args) -> int:
     emit_vocab(art, vocab)
     # ADR 0011: the splitter is language-agnostic; the list is not.
     art.add_u8("tok.nonbreaking", nonbreaking.blob(args.src))
+
+    # ADR 0017: ship the model's own `nmt_nfkc` table rather than reimplementing
+    # Unicode normalization. Refuse an unrecognised normalizer instead of
+    # silently applying the wrong rules.
+    norm_name, charsmap = charsmap_mod.read_spec(args.vocab)
+    if charsmap:
+        if norm_name != "nmt_nfkc":
+            raise SystemExit(f"unsupported normalizer {norm_name!r}; expected nmt_nfkc")
+        art.add_u8("tok.charsmap", charsmap)
+        print(f"  normalizer: {norm_name}, {len(charsmap)} bytes", file=sys.stderr)
+    else:
+        print(f"  normalizer: none in {args.vocab.name}", file=sys.stderr)
 
     if args.lex:
         offsets, targets, first_num, best_num = marian.read_shortlist(args.lex, vocab_size)
