@@ -160,8 +160,10 @@ def one_pair(pair, args, base, records, flores: Path) -> dict:
     golds = tf.read_text(encoding="utf-8").splitlines()[:args.segments]
     src_txt = "\n".join(srcs) + "\n"
 
+    # The artifact stores fizh's short form, so the CLI has to be asked for it
+    # too -- `zh-Hans` is `zhs` inside a .fzm (SPEC §9, convert.LANG_SHORT).
     p = run(["./zig-out/bin/translate", "--model", str(fzm),
-             "--src", src, "--tgt", tgt], input=src_txt)
+             "--src", short_lang(src), "--tgt", short_lang(tgt)], input=src_txt)
     if p.returncode != 0:
         return {**out, "stage": "translate", "ok": False,
                 "error": (p.stderr.strip().splitlines() or ["nonzero exit"])[-1][:200]}
