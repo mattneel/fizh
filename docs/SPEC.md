@@ -401,19 +401,23 @@ Reference device: 2022-class mid-tier Android (A55-class cores), single-threaded
 
 **Build mode:** the ship build is `ReleaseSafe`, and the two loop interiors that dominate it — `qgemmTile` and `dotI8` — set `@setRuntimeSafety(false)`. That is worth **2.02x** (109.3 ms → 54.2 at 164 source tokens, against 48.2 for a whole-program `ReleaseFast`), and it leaves the load path and every other function checked. Check once at the boundary, not once per element (ADR 0026).
 
-**T5 has run.** The budgets below are mobile measurements, not desktop proxies. The first run was an 8-core armv81 Android 10 device, 8 GB, Chrome 150, on `es→en`. (It used the then-current relaxed artifact, which has since been shown byte-identical to the one that ships — ADR 0025 — so the numbers stand.)
+**T5 has run, twice.** The budgets below are mobile measurements. The figures are the second run: an 8-core armv81 Android 10 device, 8 GB, Chrome 150, `es→en` at `d=384`, foreground and page-visible throughout, 400/40/60 runs after 10 warmups. The first run is superseded — it used a 20 MB tiny model, 30 runs, and a backgrounded tab, so none of its numbers are comparable to these.
 
-Work order 5 retightened this table to ~1.5× *desktop* measurements. That was a mistake with a specific cost: a desktop is not a basis for a mobile budget, and the retightened paragraph row failed on the phone at 287.7 ms against 100 ms — a false failure produced by the budget, not by the runtime. The numbers below return to the mobile-targeted scale the table originally had, which the device says was closer to right.
+Work order 5 retightened this table to ~1.5× *desktop* measurements. That was a mistake with a specific cost: a desktop is not a basis for a mobile budget, and the retightened paragraph row failed on the phone at 287.7 ms against 100 — a false failure produced by the budget rather than the runtime. Budgets are now ~2× the measured steady value, on the reasoning that the pinned unit is *one* device and slower ones exist; anything tighter re-runs that mistake with a different constant.
 
-| Metric | Budget | Measured (Android, es→en) |
+| Metric | Budget | Measured (Android, es→en, d=384) |
 |---|---|---|
-| Cold start: instantiate + load + repack, one direction | ≤ 300 ms | **29.3** |
-| Warm p50, 12-token message, **direct** | ≤ 80 ms | **59.5** |
-| Warm p50, 12-token message, **pivot** | ≤ 160 ms | not yet run |
-| Warm p99, 120-token message, direct | ≤ 900 ms | **847.8** ⚠ see below |
-| Warm p50, 8-sentence paragraph | ≤ 400 ms | **287.7** (35.9 per sentence) |
+| Cold start: instantiate + load + repack, one direction | ≤ 150 ms | **52.0** |
+| Warm p50, 12-token message, **direct** | ≤ 60 ms | **21.8** steady, 27.0 overall |
+| Warm p99, 12-token message, direct | ≤ 120 ms | **50.3** (400 runs, a real p99) |
+| Warm p50, 12-token message, **pivot** | ≤ 120 ms | not yet run |
+| Warm max, 120-token message, direct | ≤ 450 ms | **211.2** (40 runs, max not p99) |
+| Warm p50, 8-sentence paragraph | ≤ 300 ms | **120.1** (15.01 per sentence) |
 | Shared scratch | ≤ 12 MB | 6.4 at the §4.3 config |
 | Weights, per direction | ≤ 64 MB | 19.2 (tiny), 33.4 (base-memory), up to 56.7 (base) |
+| Peak linear memory, one direction resident | ≤ 128 MB | **86** |
+
+Every row passes, and `bergamot-translator` on the same device is slower on every one of them (ADR 0028).
 
 Three things this table now states that the desktop one could not:
 

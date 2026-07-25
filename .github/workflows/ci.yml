@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The full gate: wasm artifacts, §3 budgets, Tiger Style, converter agreement,
+  # the JS host, the T2 oracle, and the recorded real-model translations.
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python3 -m pip install --disable-pip-version-check numpy
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - run: zig build ci
+
+  # Does the suite *run* on this ISA, natively?
+  #
+  # SPEC §13's T1 compares `ref/` against `vector/`, so this is the portability
+  # claim under test: the same `@Vector` source lowering to NEON on ARM and to
+  # SSE/AVX on x86 must produce identical integer results (ADR 0023). aarch64 is
+  # the case that matters — it is the deployment ISA and the one furthest from
+  # what the kernels were developed against.
+  #
+  # These are real runners, not emulation. A qemu pass proves the lowering
+  # compiles and agrees; it does not prove it on silicon.
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,     label: x86_64-linux }
+          - { os: ubuntu-24.04-arm,  label: aarch64-linux }
+          - { os: macos-latest,      label: aarch64-macos }
+          - { os: macos-13,          label: x86_64-macos }
+          - { os: windows-latest,    label: x86_64-windows }
+    runs-on: ${{ matrix.os }}
+    name: native (${{ matrix.label }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      # `zig build test` only: the full gate needs python, numpy and node, and
+      # this job is asking about the ISA rather than about the tooling.
+      - run: zig build test
+
+  # Does it *compile* for targets with no runner? Reported separately and
+  # deliberately not called "supported" — work order 9: do not claim a target
+  # works because it produced a binary.
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-linux-musl
+          - x86_64-linux-musl
+          - riscv64-linux
+          - aarch64-windows
+    name: builds only (${{ matrix.target }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - run: zig build -Dtarget=${{ matrix.target }}
+      - run: echo "::notice::${{ matrix.target }} compiles. NOT tested — no runner."
