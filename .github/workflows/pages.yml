@@ -3,8 +3,8 @@ name: benchmark page
 # Publishes the SPEC §13 T5 harness to GitHub Pages so §14 can be measured on
 # real hardware instead of a desktop. See docs/adr/0021.
 #
-# Model versions are pinned in tools/pins.py — a benchmark whose inputs drift
-# is not a benchmark.
+# The benchmark set is tools/pins.py; which upstream record each pair resolves
+# to is tools/registry.py (ADR 0022), and the page records the sha256 it got.
 
 on:
   push:

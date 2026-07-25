@@ -37,12 +37,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from chrf import corpus_score  # noqa: E402
-import pins  # noqa: E402
+import registry  # noqa: E402
 from convert import short_lang  # noqa: E402
-
-REGISTRY = ("https://firefox.settings.services.mozilla.com/v1/buckets/main"
-            "/collections/translations-models/records")
-CAPABILITIES = "https://firefox.settings.services.mozilla.com/v1/"
 
 # Registry codes are ISO 639-1; FLORES is 639-3 plus a script tag.
 FLORES = {
@@ -72,44 +68,48 @@ def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
-def fetch(pair, raw: Path, base: str, records) -> dict:
-    src, tgt = pair
-    recs = [r for r in records if r.get("fromLang") == src and r.get("toLang") == tgt]
-    models = [r for r in recs if r["fileType"] == "model"]
-    model = pins.choose(pair, models)
-    if model is None:
-        return {"error": "no model attachment"}
-    version = model.get("version")
-    raw.mkdir(parents=True, exist_ok=True)
-    got = {}
-    for r in recs:
-        if r["fileType"] == "model" and r is not model:
-            continue
-        if r["fileType"] != "model" and r.get("version") != version:
-            continue
-        dst = raw / r["name"]
-        if not dst.exists() or dst.stat().st_size != r["attachment"]["size"]:
-            p = run(["curl", "-sSL", "--max-time", "600", "-o", str(dst),
-                     base + r["attachment"]["location"]])
-            if p.returncode != 0:
-                return {"error": f"download {r['name']}: {p.stderr[:120]}"}
-        if dst.stat().st_size != r["attachment"]["size"]:
-            return {"error": f"{r['name']}: size mismatch"}
-        got[r["fileType"]] = dst
-    return {"version": version, "size": model["attachment"]["size"], "files": got}
+def fetch(pair, raw: Path, manifest, pairs) -> dict:
+    """Select and download from the GCS registry (ADR 0022), verifying sha256.
+
+    Provenance travels with the result: the upstream path, size and hash of the
+    model are what let a published .fzm be traced to exact upstream bytes after
+    the bucket has moved on."""
+    v = pairs.get(pair)
+    if not v:
+        return {"error": "not in the upstream registry"}
+    r = registry.choose(v)
+    why = registry.supported(r)
+    if why:
+        return {"error": why}
+    spec = r["files"]["model"]
+    try:
+        got = registry.download(manifest, r, raw)
+    except Exception as e:
+        return {"error": f"download: {type(e).__name__}: {e}"[:200]}
+    return {
+        "architecture": r["architecture"],
+        "release_status": r.get("releaseStatus"),
+        "upstream_chrfpp": registry.chrfpp(r),
+        "upstream_path": spec["path"],
+        "size": spec.get("uncompressedSize", 0),
+        "sha256": spec.get("uncompressedHash"),
+        "files": got,
+    }
 
 
-def one_pair(pair, args, base, records, flores: Path) -> dict:
+def one_pair(pair, args, manifest, pairs, flores: Path) -> dict:
     src, tgt = pair
     tag = f"{src}-{tgt}"
     out = {"pair": tag}
     raw = Path(args.work) / "bergamot" / f"{src}{tgt}".replace("-", "")
     t0 = time.time()
 
-    got = fetch(pair, raw, base, records)
+    got = fetch(pair, raw, manifest, pairs)
     if "error" in got:
         return {**out, "stage": "fetch", "ok": False, "error": got["error"]}
-    out["version"] = got["version"]
+    for k in ("architecture", "release_status", "upstream_chrfpp",
+              "upstream_path", "sha256"):
+        out[k] = got[k]
     out["model_bytes"] = got["size"]
 
     model = next(iter(sorted(raw.glob("model.*.intgemm.alphas.bin"))), None)
@@ -203,13 +203,9 @@ def main(argv=None) -> int:
     p.add_argument("--only", help="comma-separated src-tgt pairs")
     args = p.parse_args(argv)
 
-    base = json.loads(run(["curl", "-sS", CAPABILITIES]).stdout)
-    base = base["capabilities"]["attachments"]["base_url"]
-    records = json.loads(run(["curl", "-sS", REGISTRY]).stdout)["data"]
-
-    pairs = sorted({(r["fromLang"], r["toLang"]) for r in records
-                    if r.get("fromLang") and r.get("toLang")
-                    and r.get("fileType") == "model"})
+    manifest = registry.load(Path(args.work) / "models.json")
+    by = registry.by_pair(manifest)
+    pairs = sorted(by)
     if args.only:
         want = set(args.only.split(","))
         pairs = [q for q in pairs if f"{q[0]}-{q[1]}" in want]
@@ -230,7 +226,7 @@ def main(argv=None) -> int:
                          "error": "no FLORES mapping"}
         else:
             try:
-                done[tag] = one_pair(q, args, base, records, args.flores)
+                done[tag] = one_pair(q, args, manifest, by, args.flores)
             except Exception as e:  # a crash is a result, not a reason to stop
                 done[tag] = {"pair": tag, "stage": "exception", "ok": False,
                              "error": f"{type(e).__name__}: {e}"[:200]}

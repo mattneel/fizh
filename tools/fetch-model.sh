@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# fetch-model.sh — download a real Bergamot model and convert it to .fzm.
+# fetch-model.sh — download a real Mozilla model and convert it to .fzm.
 #
 #   tools/fetch-model.sh es en            # -> zig-out/esen.fzm
 #   tools/fetch-model.sh en de models/    # into a directory of your choosing
 #
-# The models are Mozilla's, MPL-2.0, and are NOT vendored here. Firefox
-# downloads them from remote settings at runtime and so does this script; the
-# GitHub mirror stores them in LFS and does not serve the objects anonymously.
+# The models are Mozilla's, MPL-2.0, and are NOT vendored here. They come from
+# the public GCS bucket that `mozilla/translations` publishes a manifest for;
+# `tools/registry.py` decides which record and verifies its sha256. ADR 0022
+# covers why that bucket rather than Firefox's remote-settings CDN, and why
+# selection is by measured chrF++ rather than by size.
 set -euo pipefail
 
 SRC="${1:-es}"
@@ -17,65 +19,35 @@ RAW="${OUT}/bergamot/${PAIR}"
 
 mkdir -p "$RAW"
 
-BASE=$(curl -sS https://firefox.settings.services.mozilla.com/v1/ \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["capabilities"]["attachments"]["base_url"])')
+# Selection, download, decompression and hash verification all live in
+# registry.py so that this script and the coverage sweep cannot disagree about
+# which artifact a pair means.
+PYTHONPATH=tools python3 - "$RAW" "$SRC" "$TGT" "${OUT}/models.json" <<'PY'
+import sys
+from pathlib import Path
+import registry
 
-curl -sS "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records" \
-  > "$RAW/records.json"
+raw, src, tgt, cache = sys.argv[1:5]
+manifest = registry.load(Path(cache))
+v = registry.by_pair(manifest).get((src, tgt))
+if not v:
+    raise SystemExit(f"no {src}->{tgt} in the registry; see tools/registry.py")
 
-python3 - "$RAW" "$BASE" "$SRC" "$TGT" <<'PY'
-import json, os, re, subprocess, sys
-raw, base, src, tgt = sys.argv[1:5]
-recs = [r for r in json.load(open(f"{raw}/records.json"))["data"]
-        if r.get("fromLang") == src and r.get("toLang") == tgt]
-if not recs:
-    raise SystemExit(f"no {src}->{tgt} records; pick another pair")
+r = registry.choose(v)
+why = registry.supported(r)
+if why:
+    raise SystemExit(f"{src}->{tgt}: {why}")
 
-# Several versions coexist, and they are not interchangeable. Two filters,
-# in order:
-#
-#   1. Skip pre-releases. Version strings like "1.0a1" are alpha artifacts that
-#      sit next to the "1.0" they preceded, and Firefox does not ship them.
-#      They are often a few hundred bytes *smaller* than the release, so a
-#      smallest-first rule selects them for 21 of the 105 pairs -- and cs-en
-#      v1.0a1 translates to fluent nonsense through fizh where v1.0 is correct.
-#   2. Then take the smallest, which is the "tiny" student architecture fizh
-#      implements (SPEC §4.3) rather than the "base" model beside it.
-sys.path.insert(0, "tools")
-import pins
-
-models = [r for r in recs if r["fileType"] == "model"]
-model = pins.choose((src, tgt), models)
-if model is None:
-    raise SystemExit(f"no {src}->{tgt} model attachment")
-version = model.get("version")
-print(f"  {src}->{tgt} version {version}, model {model['attachment']['size']} bytes")
-
-for r in recs:
-    if r["fileType"] != "model" and r.get("version") != version:
-        continue
-    if r["fileType"] == "model" and r is not model:
-        continue
-    dst = os.path.join(raw, r["name"])
-    subprocess.run(["curl", "-sSL", "-o", dst, base + r["attachment"]["location"]], check=True)
-    got = os.path.getsize(dst)
-    if got != r["attachment"]["size"]:
-        raise SystemExit(f"{r['name']}: got {got}, expected {r['attachment']['size']}")
-    print(f"  {r['name']}  {got} bytes")
+spec = r["files"]["model"]
+print(f"  {src}->{tgt} {r['architecture']} ({r.get('releaseStatus')}), "
+      f"{spec['uncompressedSize'] / 2**20:.1f} MiB, "
+      f"upstream chrF++ {registry.chrfpp(r):.2f}", file=sys.stderr)
+for kind, path in registry.download(manifest, r, Path(raw)).items():
+    print(f"  {kind:<18} {path.name}  {path.stat().st_size} bytes", file=sys.stderr)
 PY
 
 MODEL=$(ls "$RAW"/model.*.intgemm.alphas.bin)
-
-# A bundle with distinct srcvocab/trgvocab files has one vocabulary per side.
-# fizh has one table end to end, so either choice silently mistranslates.
-if [ -f "$RAW"/srcvocab.*.spm ] && [ -f "$RAW"/trgvocab.*.spm ]; then
-  if ! cmp -s "$RAW"/srcvocab.*.spm "$RAW"/trgvocab.*.spm; then
-    echo "  ${SRC}->${TGT}: separate source and target vocabularies; fizh requires one shared vocabulary" >&2
-    exit 1
-  fi
-fi
-
-VOCAB=$(ls "$RAW"/vocab.*.spm 2>/dev/null || ls "$RAW"/srcvocab.*.spm)
+VOCAB=$(ls "$RAW"/vocab.*.spm)
 LEX=$(ls "$RAW"/lex.*.s2t.bin 2>/dev/null || true)
 
 PYTHONPATH=tools python3 tools/bergamot.py "${OUT}/${PAIR}.fzm" \

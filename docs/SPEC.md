@@ -146,10 +146,10 @@ A pivot between two `d=384` directions is the expensive case and it is real — 
 
 | | |
 |---|---|
-| Weights, `d=384` direction | 33.3 MB |
-| Two resident | 66.6 MB |
-| Shared scratch at `d=384` | ~9 MB |
-| **Total before the host's own allocations** | **≈ 76 MB** |
+| Weights, largest selected artifact | 56.7 MB |
+| Two resident | 113 MB |
+| Shared scratch | ~9 MB |
+| **Total before the host's own allocations** | **≈ 122 MB** |
 
 Whether a phone tolerates that is not answerable from a desktop, which is what SPEC §13 T5 and the Pages harness exist to settle.
 
@@ -389,7 +389,7 @@ nothing can fail is decoration, not a tripwire.
 | Warm p99, 120-token message, direct | ≤ 200 ms | 130 |
 | Warm p50, 8-sentence paragraph | ≤ 100 ms | 64.8 |
 | Shared scratch | ≤ 10 MB | 6.76 |
-| Weights, per direction | ≤ 35 MB | 19.23 (d=256), 33.3 (d=384) |
+| Weights, per direction | ≤ 64 MB | 19.2 (tiny), 33.4 (base-memory), up to 56.7 (base) |
 
 The paragraph row is new: segmentation (ADR 0011) added per-sentence work that
 the pre-segmentation numbers never saw.
